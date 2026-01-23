@@ -1,18 +1,28 @@
 [tool.poetry]
 name = "watchdog-http"
 version = "0.1.0"
-description = "The project is an asynchronous web service availability monitoring system. 
-The essence of the system is that it is an autonomous observer that performs background HTTP checks (Health Checks) 
-of target APIs and websites according to a specified schedule, records performance metrics (latency, status codes) 
-in the TimescaleDB time series database, and instantly notifies the owner of incidents via Telegram bot/email 
-or saves reports to a local folder within the project. 
-The architecture is built on the FastAPI + Redis + Arq stack."
+description = "The project is an asynchronous web service availability monitoring system. The essence of the system is that it is an autonomous observer that performs background HTTP checks (Health Checks) of target APIs and websites according to a specified schedule, records performance metrics (latency, status codes) in the TimescaleDB time series database, and instantly notifies the owner of incidents via Telegram bot/email or saves reports to a local folder within the project. The architecture is built on the FastAPI + Redis + Arq stack."
 authors = ["ZeroMaster"]
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.12"
+fastapi = "^0.128.0"
+uvicorn = "^0.40.0"
+redis = ">=4.2.0,<6"
+arq = "^0.26.3"
+sqlalchemy = "^2.0.46"
+pydantic = "^2.12.5"
+alembic = "^1.18.1"
+asyncpg = "^0.31.0"
+httpx = "^0.28.1"
 
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.2"
+black = "^26.1.0"
+mypy = "^1.19.1"
 
 [build-system]
 requires = ["poetry-core"]
