@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, Text, func
+from sqlalchemy import ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base

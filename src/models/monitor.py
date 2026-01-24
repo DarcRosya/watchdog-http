@@ -4,7 +4,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 
 from src.core.database import Base
-from src.core.db_types import intpk, str_50, aware_datetime
+from src.core.db_types import intpk, aware_datetime
 
 if TYPE_CHECKING:
     from .user import User
@@ -18,7 +18,7 @@ class Monitor(Base):
     id: Mapped[intpk]
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     
-    name: Mapped[str_50] = mapped_column(nullable=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=True)
     url: Mapped[Text] = mapped_column(nullable=False)  
 
     method: Mapped[str] = mapped_column(String(10), default="GET")

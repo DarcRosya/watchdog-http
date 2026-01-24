@@ -1,1 +1,86 @@
-pass
+services:
+  database:
+    image: timescale/timescaledb:latest-pg14
+    container_name: watchdog_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB__USER}
+      POSTGRES_PASSWORD: ${DB__PASS}
+      POSTGRES_DB: ${DB__NAME}
+    ports:
+      - "${DB__PORT}:5432"  
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB__USER} -d ${DB__NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: watchdog_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: watchdog_app
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DB__HOST: database
+      REDIS__HOST: redis
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./src:/app/src
+      - /app/src/__pycache__
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  worker:
+    build: .
+    container_name: watchdog_worker
+    command: arq src.worker.main.WorkerSettings --watch src
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB__HOST: database
+      REDIS__HOST: redis
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src  
+      - ./logs:/app/logs 
+
+volumes:
+  postgres_data:
+  redis_data:
