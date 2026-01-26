@@ -19,11 +19,11 @@ class Monitor(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     
     name: Mapped[str] = mapped_column(String(50), nullable=True)
-    url: Mapped[Text] = mapped_column(nullable=False)  
+    url: Mapped[str] = mapped_column(Text, nullable=False)  
 
     method: Mapped[str] = mapped_column(String(10), default="GET")
     headers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    body: Mapped[Text] = mapped_column(nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=True)
 
     interval: Mapped[int] = mapped_column(nullable=False, default=60) # in seconds 
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -32,4 +32,4 @@ class Monitor(Base):
 
     last_check_status: Mapped[bool] = mapped_column(nullable=True)
 
-    created_at: mapped_column[aware_datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[aware_datetime] = mapped_column(server_default=func.now())
