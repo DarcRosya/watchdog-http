@@ -28,11 +28,16 @@ class DatabaseSettings(BaseModel):
 
 
 class RedisSettings(BaseModel):
+        """Redis connection configuration."""
         R_HOST: str = "localhost" 
         R_PORT: int = 6379
 
         @property
-        def GET_ARQ_SETTINGS(self) -> ArqRedisSettings:
+        def arq_settings(self) -> ArqRedisSettings:
+            """
+            Forms a settings object for the ARQ worker.
+            ARQ uses its own RedisSettings format, which differs from redis-py.
+            """
             return ArqRedisSettings(
                 host=self.R_HOST,
                 port=self.R_PORT,

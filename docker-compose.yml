@@ -46,7 +46,7 @@ services:
       - .env
     environment:
       DB__HOST: database
-      REDIS__HOST: redis
+      REDIS__R_HOST: redis
     depends_on:
       database:
         condition: service_healthy
@@ -65,13 +65,14 @@ services:
   worker:
     build: .
     container_name: watchdog_worker
+    # --watch src for development
     command: arq src.worker.main.WorkerSettings --watch src
     restart: always
     env_file:
       - .env
     environment:
       DB__HOST: database
-      REDIS__HOST: redis
+      REDIS__R_HOST: redis
     depends_on:
       database:
         condition: service_healthy

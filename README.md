@@ -1,4 +1,4 @@
-# 🛡️ Watchdog-http (ver 0.4.0)
+# 🛡️ Watchdog-http (ver 0.8.2)
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)
