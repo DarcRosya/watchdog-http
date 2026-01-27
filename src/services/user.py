@@ -33,6 +33,18 @@ class UserService:
 
         return result.scalars().first()
 
+    async def get_user_by_username(self, username: str) -> Optional[User]:
+        query = select(User).where(User.username == username)
+        result = await self.session.execute(query)
+
+        return result.scalars().first()
+
+    async def get_user_by_api_key(self, api_key: str) -> Optional[User]:
+        query = select(User).where(User.api_key == api_key)
+        result = await self.session.execute(query)
+
+        return result.scalars().first()
+
     async def get_user_by_telegram_id(self, telegram_chat_id: int) -> Optional[User]:
         query = select(User).where(User.telegram_chat_id == telegram_chat_id)
         result = await self.session.execute(query)

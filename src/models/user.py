@@ -3,6 +3,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base
 from src.core.db_types import intpk, aware_datetime
+from src.utils.random_generate import generate_api_key
+
 
 class User(Base):
     __tablename__ = "users"
@@ -10,6 +12,7 @@ class User(Base):
     id: Mapped[intpk]
     
     username: Mapped[str] = mapped_column(String(100), nullable=False)
+    api_key: Mapped[str] = mapped_column(String(64), unique=True, index=True, default=generate_api_key)
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=True)
 
     created_at: Mapped[aware_datetime] = mapped_column(server_default=func.now())

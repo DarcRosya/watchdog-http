@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "watchdog-http"
-version = "0.8.2"
+version = "1.0.0"
 description = "The project is an asynchronous web service availability monitoring system. The essence of the system is that it is an autonomous observer that performs background HTTP checks (Health Checks) of target APIs and websites according to a specified schedule, records performance metrics (latency, status codes) in the TimescaleDB time series database, and instantly notifies the owner of incidents via Telegram bot or saves reports to a local folder within the project. The architecture is built on the FastAPI + Redis + Arq stack."
 authors = ["ZeroMaster"]
 readme = "README.md"

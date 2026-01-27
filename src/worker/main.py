@@ -11,6 +11,13 @@ from src.models.monitor import Monitor
 from src.models.resultlog import ResultLog
 
 
+def get_next_aligned_time(interval_seconds: int = 60) -> datetime:
+    now = datetime.now(timezone.utc)
+    aligned_now = now.replace(second=0, microsecond=0)
+
+    return aligned_now + timedelta(seconds=interval_seconds)
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     print("=" * 60)
     print("🚀 WORKER STARTING UP")
@@ -108,17 +115,14 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
         )
         session.add(log_entry)
 
-        next_check = datetime.now(timezone.utc) + timedelta(seconds=monitor.interval)
+        next_check = get_next_aligned_time(monitor.interval) # logs
 
         # Use update() instead of modifying the object
         # This is an atomic operation safer in case of concurrent access
         await session.execute(
             update(Monitor)
             .where(Monitor.id == monitor_id)
-            .values(
-                next_check_at=next_check,
-                last_check_status=is_success
-            )
+            .values(last_check_status=is_success)
         )
 
         await session.commit()
@@ -146,19 +150,6 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
 # =============================================================================
 
 async def scheduler(ctx: dict[str, Any]) -> None:
-    """
-    Cron task: runs every minute.
-    Reads all monitors from the database that are “due for checking”
-    (next_check_at <= current time) and creates tasks for them.
-
-    POTENTIAL PROBLEM: Duplicate tasks
-    If one monitor is still being checked and the scheduler has already
-    created a new task, we will get a duplicate.
-    
-    SOLUTION (simplified for now):
-    - Update next_check_at immediately when creating a task
-    - In production, a locking mechanism is required (Redis SETNX)
-    """
     session_factory = ctx["session_factory"]
     
     print("\n" + "─" * 40)
@@ -188,10 +179,10 @@ async def scheduler(ctx: dict[str, Any]) -> None:
         print(f"📋 Found {len(monitors)} monitors to check")
 
         for monitor in monitors:
-            await ctx["redis"].enqueue_job(
-                "check_monitor",  
-                monitor.id,   
-            )
+            await ctx["redis"].enqueue_job("check_monitor", monitor.id)
+
+            next_aligned_time = get_next_aligned_time(monitor.interval)
+
             print(f"  📤 Queued: {monitor.name or monitor.url}")
             
             # Update next_check_at immediately to avoid duplicates.
@@ -199,7 +190,7 @@ async def scheduler(ctx: dict[str, Any]) -> None:
             await session.execute(
                 update(Monitor)
                 .where(Monitor.id == monitor.id)
-                .values(next_check_at=now + timedelta(seconds=monitor.interval))
+                .values(next_check_at=next_aligned_time)
             )
         
         await session.commit()
@@ -235,7 +226,7 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
 
-    max_jobs = 10  
+    max_jobs = 20  
     job_timeout = 60  
 
     max_tries = 3

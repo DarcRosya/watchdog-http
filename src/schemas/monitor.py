@@ -34,3 +34,9 @@ class MonitorCreate(BaseModel):
 class MonitorResponse(MonitorCreate):
     id: int
     is_active: bool
+
+
+class MonitoringStatus(BaseModel):
+    status: str = Field(description="Current status: 'started' or 'stopped'")
+    message: str = Field(description="Human-readable status message")
+    affected_count: int = Field(description="Number of monitors affected")

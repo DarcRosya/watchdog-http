@@ -1,5 +1,4 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 
 import httpx
@@ -7,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.monitor import Monitor
 from src.schemas.monitor import MonitorCreate
+from src.worker.main import get_next_aligned_time
 
 
 class MonitorService:
@@ -56,7 +56,7 @@ class MonitorService:
             else:
                 print(f"✅ Success: Сайт {url} успешно проверен.")
 
-            first_check_at = datetime.now(timezone.utc) + timedelta(seconds=data.interval)
+            next_aligned_time = get_next_aligned_time(data.interval)
             
             monitor = Monitor(
                 user_id=user_id,
@@ -65,7 +65,7 @@ class MonitorService:
                 interval=data.interval,
                 method=data.method,
                 is_active=True,
-                next_check_at=first_check_at,
+                next_check_at=next_aligned_time,
                 last_check_status=None,
             )
             new_monitors.append(monitor)

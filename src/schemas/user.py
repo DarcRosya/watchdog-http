@@ -2,10 +2,8 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, ConfigDict
-from coolname import generate_slug
 
-def generate_random_username() -> str:
-    return generate_slug(2)
+from src.utils.random_generate import generate_random_username
 
 class UserCreate(BaseModel):
     # username generated automatically when registered
@@ -28,6 +26,7 @@ class UserResponse(BaseModel):
     
     id: int = Field(description="Unique identifier of the user.")
     username: str = Field(description="The username.")
+    api_key: str = Field(description="API key for authentication.")
     telegram_chat_id: Optional[int] = Field(
         default=None, 
         description="Telegram Chat ID."
