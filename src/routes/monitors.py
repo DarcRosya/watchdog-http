@@ -1,11 +1,9 @@
 from typing import List
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select, update
 
 from src.core.database import DBSession
 from src.core.dependencies import CurrentUser
-from src.models.monitor import Monitor
 from src.schemas.monitor import MonitorCreate, MonitorResponse, MonitoringStatus
 from src.services.monitor import MonitorService
 
@@ -22,11 +20,8 @@ async def get_monitors(
     user: CurrentUser,
     session: DBSession
 ):
-    query = select(Monitor).where(Monitor.user_id == user.id)
-    result = await session.execute(query)
-    monitors = result.scalars().all()
-    
-    return monitors
+    service = MonitorService(session)
+    return await service.get_all_by_user(user.id)
 
 
 @router.post(
@@ -56,21 +51,8 @@ async def start_monitoring(
     user: CurrentUser,
     session: DBSession
 ):
-    query = (
-        update(Monitor)
-        .where(Monitor.user_id == user.id)
-        .values(is_active=True)
-    )
-    result = await session.execute(query)
-    await session.commit()
-    
-    print(f"▶️ User {user.username} started monitoring ({result.rowcount} monitors)")
-    
-    return MonitoringStatus(
-        status="started",
-        message=f"Activated {result.rowcount} monitor(s)",
-        affected_count=result.rowcount
-    )
+    service = MonitorService(session)
+    return await service.start_all(user.id, user.username)
 
 
 @router.post(
@@ -83,21 +65,8 @@ async def stop_monitoring(
     user: CurrentUser,
     session: DBSession
 ):
-    query = (
-        update(Monitor)
-        .where(Monitor.user_id == user.id)
-        .values(is_active=False)
-    )
-    result = await session.execute(query)
-    await session.commit()
-    
-    print(f"⏹️ User {user.username} stopped monitoring ({result.rowcount} monitors)")
-    
-    return MonitoringStatus(
-        status="stopped",
-        message=f"Deactivated {result.rowcount} monitor(s)",
-        affected_count=result.rowcount
-    )
+    service = MonitorService(session)
+    return await service.stop_all(user.id, user.username)
 
 
 @router.patch(
@@ -111,12 +80,8 @@ async def toggle_monitor(
     user: CurrentUser,
     session: DBSession
 ):
-    query = select(Monitor).where(
-        Monitor.id == monitor_id,
-        Monitor.user_id == user.id
-    )
-    result = await session.execute(query)
-    monitor = result.scalars().first()
+    service = MonitorService(session)
+    monitor = await service.get_by_id(monitor_id, user.id)
     
     if not monitor:
         raise HTTPException(
@@ -124,14 +89,7 @@ async def toggle_monitor(
             detail=f"Monitor with id={monitor_id} not found"
         )
     
-    monitor.is_active = not monitor.is_active
-    await session.commit()
-    await session.refresh(monitor)
-    
-    state = "activated" if monitor.is_active else "deactivated"
-    print(f"🔄 Monitor {monitor_id} ({monitor.url}) {state}")
-    
-    return monitor
+    return await service.toggle(monitor)
 
 
 @router.delete(
@@ -145,12 +103,8 @@ async def delete_monitor(
     user: CurrentUser,
     session: DBSession
 ):
-    query = select(Monitor).where(
-        Monitor.id == monitor_id,
-        Monitor.user_id == user.id
-    )
-    result = await session.execute(query)
-    monitor = result.scalars().first()
+    service = MonitorService(session)
+    monitor = await service.get_by_id(monitor_id, user.id)
     
     if not monitor:
         raise HTTPException(
@@ -158,7 +112,4 @@ async def delete_monitor(
             detail=f"Monitor with id={monitor_id} not found"
         )
     
-    await session.delete(monitor)
-    await session.commit()
-    
-    print(f"🗑️ Monitor {monitor_id} ({monitor.url}) deleted")
+    await service.delete(monitor)
