@@ -82,6 +82,28 @@ services:
       - ./src:/app/src  
       - ./logs:/app/logs 
 
+  telegram-bot:
+    build: .
+    container_name: watchdog_telegram
+    command: python -m src.telegram.bot
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB__HOST: database
+      REDIS__R_HOST: redis
+    depends_on:
+      database:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+
 volumes:
   postgres_data:
   redis_data:

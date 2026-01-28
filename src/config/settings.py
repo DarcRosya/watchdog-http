@@ -44,6 +44,15 @@ class RedisSettings(BaseModel):
             )
 
 
+class TelegramSettings(BaseModel):
+        """Telegram bot configuration."""
+        BOT_TOKEN: SecretStr
+        
+        @property
+        def token(self) -> str:
+            return self.BOT_TOKEN.get_secret_value()
+
+
 class Settings(BaseSettings):
         """
         The main class aggregator, which is the sole source of configuration for the entire application.
@@ -62,6 +71,7 @@ class Settings(BaseSettings):
 
         db: DatabaseSettings
         redis: RedisSettings
+        telegram: TelegramSettings
 
 
 settings = Settings()
