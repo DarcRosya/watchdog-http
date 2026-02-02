@@ -2,11 +2,12 @@ from fastapi import APIRouter, HTTPException, status
 
 from src.core.database import DBSession
 from src.core.dependencies import CurrentUser
+from src.core.logging import get_logger
 from src.schemas.user import UserCreate, UserResponse
 from src.schemas.auth import AuthRequest, AuthResponse
 from src.services.user import UserService
 
-
+logger = get_logger("api")
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
@@ -23,8 +24,7 @@ async def create_user(
 ):
     service = UserService(session)
     
-    # Docker logs output
-    print(f"📝 Creating user: {user_data.username}")
+    logger.info("user_registration_attempt", username=user_data.username)
     
     user = await service.create_user(
         username=user_data.username,
@@ -53,7 +53,7 @@ async def authenticate(
             detail=f"User with username='{auth_data.username}' not found"
         )
     
-    print(f"🔐 User authenticated: {user.username}")
+    logger.info("user_authenticated", username=user.username, user_id=user.id)
     return user
 
 

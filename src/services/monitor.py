@@ -5,9 +5,12 @@ import httpx
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.logging import get_logger
 from src.models.monitor import Monitor
 from src.schemas.monitor import MonitorCreate, MonitoringStatus
 from src.worker.main import get_next_aligned_time
+
+logger = get_logger("service")
 
 
 class MonitorService:
@@ -69,9 +72,9 @@ class MonitorService:
         
         for data, (url, is_alive, error) in zip(monitors_data, results):
             if not is_alive:
-                print(f"⚠️ Warning: Сайт {url} недоступен при добавлении! Ошибка: {error}")
+                logger.warning("monitor_url_unavailable", url=url, error=error)
             else:
-                print(f"✅ Success: Сайт {url} успешно проверен.")
+                logger.info("monitor_url_checked", url=url, is_alive=True)
 
             next_aligned_time = get_next_aligned_time(data.interval)
             
@@ -106,7 +109,7 @@ class MonitorService:
         result = await self.session.execute(query)
         await self.session.commit()
         
-        print(f"▶️ User {username} started monitoring ({result.rowcount} monitors)")
+        logger.info("monitoring_started", user=username, user_id=user_id, affected_count=result.rowcount)
         
         return MonitoringStatus(
             status="started",
@@ -124,7 +127,7 @@ class MonitorService:
         result = await self.session.execute(query)
         await self.session.commit()
         
-        print(f"⏹️ User {username} stopped monitoring ({result.rowcount} monitors)")
+        logger.info("monitoring_stopped", user=username, user_id=user_id, affected_count=result.rowcount)
         
         return MonitoringStatus(
             status="stopped",
@@ -139,12 +142,12 @@ class MonitorService:
         await self.session.refresh(monitor)
         
         state = "activated" if monitor.is_active else "deactivated"
-        print(f"🔄 Monitor {monitor.id} ({monitor.url}) {state}")
+        logger.info("monitor_toggled", monitor_id=monitor.id, url=monitor.url, state=state)
         
         return monitor
 
     async def delete(self, monitor: Monitor) -> None:
         """Delete a monitor."""
-        print(f"🗑️ Monitor {monitor.id} ({monitor.url}) deleted")
+        logger.info("monitor_deleted", monitor_id=monitor.id, url=monitor.url)
         await self.session.delete(monitor)
         await self.session.commit()

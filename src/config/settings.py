@@ -68,6 +68,7 @@ class Settings(BaseSettings):
         )
 
         debug_mode: bool = False
+        enable_file_logging: bool = False
 
         db: DatabaseSettings
         redis: RedisSettings

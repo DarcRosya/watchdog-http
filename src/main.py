@@ -3,31 +3,40 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from src.config.settings import settings
+from src.core.logging import configure_logging, get_logger
 from src.routes import users, monitors
+# from src.utils.version import __version__ 
+
+configure_logging(
+    service="api",
+    json_logs=not settings.debug_mode,
+    log_level="DEBUG" if settings.debug_mode else "INFO",
+    enable_file_logging=settings.enable_file_logging,
+)
+logger = get_logger("api")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    print("=" * 60)
-    print("🚀 Watchdog API starting up...")
-    print("=" * 60)
-    print(f"📊 Debug mode: {settings.debug_mode}")
-    print(f"🗄️ Database: {settings.db.HOST}:{settings.db.PORT}/{settings.db.NAME}")
-    print(f"📮 Redis: {settings.redis.R_HOST}:{settings.redis.R_PORT}")
-    print("=" * 60)
-    
+    logger.info(
+        "startup",
+        debug_mode=settings.debug_mode,
+        database_host=settings.db.HOST,
+        database_port=settings.db.PORT,
+        database_name=settings.db.NAME,
+        redis_host=settings.redis.R_HOST,
+        redis_port=settings.redis.R_PORT,
+    )
+
     yield  # App is running
-    
-    # Shutdown
-    print("=" * 60)
-    print("🛑 Watchdog API shutting down...")
-    print("=" * 60)
+
+    logger.info("shutdown")
 
 
 app = FastAPI(
     title="Watchdog HTTP Monitoring Service",
-    version="1.1.0",
+    version="1.1.2",
     description="""
     Watchdog is an autonomous, asynchronous web monitoring system. 
     It performs background health checks on target APIs and websites, 

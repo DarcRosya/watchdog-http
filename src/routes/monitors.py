@@ -4,9 +4,11 @@ from fastapi import APIRouter, HTTPException, status
 
 from src.core.database import DBSession
 from src.core.dependencies import CurrentUser
+from src.core.logging import get_logger
 from src.schemas.monitor import MonitorCreate, MonitorResponse, MonitoringStatus
 from src.services.monitor import MonitorService
 
+logger = get_logger("api")
 router = APIRouter(prefix="/monitors", tags=["Monitors"])
 
 
@@ -36,6 +38,13 @@ async def create_monitors_bulk(
     user: CurrentUser,
     session: DBSession
 ):
+    logger.info(
+        "monitors_bulk_create",
+        user=user.username,
+        user_id=user.id,
+        count=len(monitors_data),
+        urls=[str(m.url) for m in monitors_data],
+    )
     service = MonitorService(session)
     new_monitors = await service.bulk_create_monitors(monitors_data, user_id=user.id)
     return new_monitors

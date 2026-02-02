@@ -3,7 +3,10 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.logging import get_logger
 from src.models.user import User
+
+logger = get_logger("service")
 
 
 class UserService:
@@ -23,7 +26,7 @@ class UserService:
         await self.session.commit()
         await self.session.refresh(user)
         
-        print(f"✅ User created: id={user.id}, username={user.username}")
+        logger.info("user_created", user_id=user.id, username=user.username)
         
         return user
 
@@ -59,7 +62,7 @@ class UserService:
         if telegram_chat_id:
             existing = await self.get_user_by_telegram_id(telegram_chat_id)
             if existing:
-                print(f"ℹ️ User found by telegram_id: {existing.username}")
+                logger.info("user_found_by_telegram", username=existing.username, telegram_chat_id=telegram_chat_id)
                 return existing, False
 
         new_user = await self.create_user(username, telegram_chat_id)

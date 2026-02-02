@@ -3,6 +3,9 @@ from enum import Enum
 import httpx
 
 from src.config.settings import settings
+from src.core.logging import get_logger
+
+logger = get_logger("telegram")
 
 
 class AlertType(Enum):
@@ -57,11 +60,16 @@ class TelegramNotifier:
             if response.status_code == 200:
                 return True
             else:
-                print(f"⚠️ Telegram API error: {response.status_code} - {response.text}")
+                logger.warning(
+                    "telegram_api_error",
+                    status_code=response.status_code,
+                    response=response.text,
+                    chat_id=chat_id,
+                )
                 return False
 
         except Exception as e:
-            print(f"❌ Failed to send Telegram message: {e}")
+            logger.error("telegram_send_failed", error=str(e), chat_id=chat_id)
             return False
 
     async def send_alert(self, chat_id: int, text: str) -> bool:

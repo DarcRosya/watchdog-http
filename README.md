@@ -1,4 +1,4 @@
-# 🛡️ Watchdog-http (ver 1.1.0)
+# 🛡️ Watchdog-http (ver 1.1.2)
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)
@@ -21,11 +21,13 @@
 ## 🏗 Architecture
 
 ### C1: Context (System Landscape)
+
 *High-level view of how the system interacts with users and external services.*
 
 ![System Context](docs/architecture/C1-Context.svg)
 
 ### C2: Containers (High-Level Technical View)
+
 <details>
 <summary>👀 <b>Click to expand detailed container diagram</b></summary>
 <br>

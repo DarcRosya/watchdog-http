@@ -54,6 +54,7 @@ services:
         condition: service_started
     volumes:
       - ./src:/app/src
+      - ./logs:/app/logs
       - /app/src/__pycache__
     deploy:
       resources:
@@ -97,6 +98,7 @@ services:
         condition: service_healthy
     volumes:
       - ./src:/app/src
+      - ./logs:/app/logs
     deploy:
       resources:
         limits:
