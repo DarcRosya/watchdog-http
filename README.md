@@ -1,4 +1,4 @@
-# 🛡️ Watchdog-http (ver 1.1.2)
+# 🛡️ Watchdog-http (ver 1.4.0)
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)
@@ -48,10 +48,11 @@ The project relies on a modern asynchronous Python stack focused on high perform
 | :--- | :--- | :--- |
 | **Core** | **Python 3.11+** | Modern async syntax support. |
 | **Web Framework** | **FastAPI** | High-performance API handling with automatic validation. |
+| **UI Dashboard** | **Streamlit** | Interactive monitoring dashboard with real-time metrics visualization. |
 | **Data Validation** | **Pydantic V2** | Robust data modeling and serialization. |
 | **Database** | **PostgreSQL** + **TimescaleDB** | SQL storage optimized for time-series data (metrics). |
 | **ORM / Migrations** | **SQLAlchemy 2.0** + **Alembic** | Asynchronous ORM and schema migration management. |
 | **Task Queue** | **Redis** + **ARQ** | Lightweight distributed task queue for background checks. |
 | **HTTP Client** | **httpx** | Fully asynchronous HTTP client for making health checks. |
 | **Infrastructure** | **Docker Compose** | Container orchestration for easy deployment. |
-| **Reverse Proxy** | **Nginx** | Handling incoming traffic and providing security. |
+| **Reverse Proxy** | **Nginx** | Handling incoming traffic, security, and routing. |

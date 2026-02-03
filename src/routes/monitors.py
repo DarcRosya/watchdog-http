@@ -122,3 +122,28 @@ async def delete_monitor(
         )
     
     await service.delete(monitor)
+
+
+@router.get(
+    "/{monitor_id}/stats",
+    response_model=List[dict],
+    summary="Get monitor statistics",
+    description="Get performance metrics and check history for a specific monitor."
+)
+async def get_monitor_statistics(
+    monitor_id: int,
+    hours: int = 24,
+    user: CurrentUser = None,
+    session: DBSession = None
+):
+    service = MonitorService(session)
+
+    monitor = await service.get_by_id(monitor_id, user.id)
+    if not monitor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Monitor with id={monitor_id} not found"
+        )
+    
+    stats = await service.get_statistics(monitor_id, user.id, hours)
+    return stats

@@ -7,8 +7,8 @@ services:
       POSTGRES_USER: ${DB__USER}
       POSTGRES_PASSWORD: ${DB__PASS}
       POSTGRES_DB: ${DB__NAME}
-    ports:
-      - "${DB__PORT}:5432"  
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,8 +21,8 @@ services:
     image: redis:7-alpine
     container_name: watchdog_redis
     restart: always
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
     deploy:
@@ -36,12 +36,12 @@ services:
       retries: 5
 
   app:
-    build: .
+    build: ./src
     container_name: watchdog_app
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     restart: always
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     env_file:
       - .env
     environment:
@@ -64,7 +64,7 @@ services:
           memory: 256M
 
   worker:
-    build: .
+    build: ./src
     container_name: watchdog_worker
     # --watch src for development
     command: arq src.worker.main.WorkerSettings --watch src
@@ -81,10 +81,10 @@ services:
         condition: service_healthy
     volumes:
       - ./src:/app/src  
-      - ./logs:/app/logs 
+      - ./logs:/app/logs
 
   telegram-bot:
-    build: .
+    build: ./src
     container_name: watchdog_telegram
     command: python -m src.telegram.bot
     restart: always
@@ -98,13 +98,29 @@ services:
         condition: service_healthy
     volumes:
       - ./src:/app/src
-      - ./logs:/app/logs
+
+  ui:
+    build: ./ui
+    container_name: watchdog_ui
+    restart: always
+    expose:
+      - "8501"
+    depends_on:
+      - app
     deploy:
       resources:
         limits:
-          memory: 256M
-        reservations:
-          memory: 64M
+          memory: 512M
+
+  nginx:
+    build: ./nginx
+    container_name: watchdog_nginx
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+      - ui
 
 volumes:
   postgres_data:

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 from typing import List, Tuple
 
 import httpx
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.logging import get_logger
 from src.models.monitor import Monitor
+from src.models.resultlog import ResultLog
 from src.schemas.monitor import MonitorCreate, MonitoringStatus
 from src.worker.main import get_next_aligned_time
 
@@ -151,3 +153,40 @@ class MonitorService:
         logger.info("monitor_deleted", monitor_id=monitor.id, url=monitor.url)
         await self.session.delete(monitor)
         await self.session.commit()
+
+    async def get_statistics(
+        self, 
+        monitor_id: int, 
+        user_id: int, 
+        hours: int = 24
+    ) -> List[dict]:
+        monitor = await self.get_by_id(monitor_id, user_id)
+        if not monitor:
+            return []
+
+        end_time = datetime.now()
+        start_time = end_time - timedelta(hours=hours)
+
+        query = (
+            select(ResultLog)
+            .where(
+                ResultLog.monitor_id == monitor_id,
+                ResultLog.start_time >= start_time,
+                ResultLog.start_time <= end_time
+            )
+            .order_by(ResultLog.start_time.asc())
+        )
+
+        result = await self.session.execute(query)
+        logs = result.scalars().all()
+
+        return [
+            {
+                "start_time": log.start_time.isoformat(),
+                "duration_ms": log.duration_ms,
+                "status_code": log.status_code,
+                "is_success": log.is_success,
+                "error_message": log.error_message
+            }
+            for log in logs
+        ]
