@@ -86,13 +86,13 @@ async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[st
         row = result.first()
 
         if not row:
-            print(f"⚠️ Monitor {monitor_id} not found for alert")
+            logger.warning("http_alert_monitor_not_found", monitor_id=monitor_id)
             return {"status": "skipped", "reason": "not_found"}
 
         monitor, user = row
 
         if not user.telegram_chat_id:
-            print(f"📵 User {user.username} has no Telegram linked, skipping notification")
+            logger.info("http_alert_skipped_no_telegram", user=user.username, monitor_id=monitor_id)
             return {"status": "skipped", "reason": "no_telegram"}
 
         log_query = (
@@ -218,15 +218,77 @@ async def send_alert_exception(
 
 
 # =============================================================================
+# TASK: Send recovery alert
+# =============================================================================
+
+async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
+    """
+    Send notification when a monitor recovers (transitions from ERROR to OK).
+    """
+    session_factory = ctx["session_factory"]
+    notifier: TelegramNotifier = ctx["notifier"]
+
+    async with session_factory() as session:
+        query = (
+            select(Monitor, User)
+            .join(User, Monitor.user_id == User.id)
+            .where(Monitor.id == monitor_id)
+        )
+        result = await session.execute(query)
+        row = result.first()
+
+        if not row:
+            logger.warning("recovery_alert_monitor_not_found", monitor_id=monitor_id)
+            return {"status": "skipped", "reason": "not_found"}
+
+        monitor, user = row
+
+        if not user.telegram_chat_id:
+            logger.info("recovery_alert_skipped_no_telegram", user=user.username, monitor_id=monitor_id)
+            return {"status": "skipped", "reason": "no_telegram"}
+
+        message = get_predefined_message(
+            alert_type=AlertType.RECOVERY,
+            monitor_name=monitor.name or "",
+            url=monitor.url,
+        )
+
+        success = await notifier.send_message(user.telegram_chat_id, message)
+
+        if success:
+            logger.info(
+                "recovery_alert_sent",
+                user=user.username,
+                monitor_id=monitor_id,
+                monitor_name=monitor.name,
+                url=monitor.url,
+            )
+        else:
+            logger.error(
+                "recovery_alert_failed",
+                user=user.username,
+                monitor_id=monitor_id,
+            )
+
+        return {
+            "status": "sent" if success else "failed",
+            "monitor_id": monitor_id,
+            "user": user.username,
+        }
+
+
+# =============================================================================
 # TASK: Check single monitor
 # =============================================================================
 
 async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     http_client: httpx.AsyncClient = ctx["http_client"]
     session_factory = ctx["session_factory"]
-    
-    # Track what type of error occurred for notifications
+    redis = ctx["redis"]
+
     alert_type: str | None = None
+
+    FAILURE_THRESHOLD = 2
     
     async with session_factory() as session:
         query = select(Monitor).where(Monitor.id == monitor_id)
@@ -241,7 +303,9 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             logger.debug("monitor_paused", monitor_id=monitor_id, url=monitor.url)
             return {"status": "skipped", "reason": "paused"}
 
-        logger.debug("check_started", monitor_id=monitor_id, url=monitor.url)
+        previous_status = monitor.last_check_status
+        
+        logger.debug("check_started", monitor_id=monitor_id, url=monitor.url, previous_status=previous_status)
 
         start_time = datetime.now(timezone.utc)
         status_code = None
@@ -299,25 +363,86 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
 
         await session.commit()
 
-        if alert_type:
-            # Exception-based error (timeout, connection error, request error)
-            # No need to check logs, just send pre-formatted message
-            await ctx["redis"].enqueue_job(
-                "send_alert_exception",
-                monitor_id,
-                alert_type,
-                error_message,
-            )
-            logger.info("alert_queued", alert_type=alert_type, monitor_id=monitor_id)
+        failure_key = f"monitor:{monitor_id}:failures"
 
-        elif not is_success and status_code is not None:
-            # HTTP error (got response but status is 4xx or 5xx)
-            # Queue task that will fetch logs and notify user
-            await ctx["redis"].enqueue_job(
-                "send_alert_http_error",
-                monitor_id,
+        if is_success:
+            # Success - reset failure counter
+            current_failures = await redis.get(failure_key)
+            if current_failures:
+                await redis.delete(failure_key)
+                logger.debug("failure_counter_reset", monitor_id=monitor_id)
+
+            # Check for state transition: ERROR -> OK (recovery)
+            if previous_status is False:
+                # Monitor recovered! Send recovery notification
+                await redis.enqueue_job(
+                    "send_alert_recovery",
+                    monitor_id,
+                )
+                logger.info("recovery_alert_queued", monitor_id=monitor_id, url=monitor.url)
+
+        else:
+            # Failure - increment counter
+            current_failures = await redis.get(failure_key)
+            failure_count = int(current_failures) if current_failures else 0
+            failure_count += 1
+
+            # Store with TTL (e.g., 1 hour) to auto-cleanup old counters
+            await redis.setex(failure_key, 3600, str(failure_count))
+
+            logger.info(
+                "failure_detected",
+                monitor_id=monitor_id,
+                failure_count=failure_count,
+                threshold=FAILURE_THRESHOLD,
+                previous_status=previous_status,
             )
-            logger.info("alert_queued", alert_type="http_error", monitor_id=monitor_id, status_code=status_code)
+
+            # Only send alert if:
+            # 1. Failure count >= threshold (anti-flapping)
+            # 2. OR this is first failure after being OK (state transition OK -> ERROR)
+            should_alert = (
+                failure_count >= FAILURE_THRESHOLD or
+                (previous_status is True and failure_count == 1)
+            )
+
+            if should_alert:
+                if alert_type:
+                    # Exception-based error (timeout, connection error, request error)
+                    await redis.enqueue_job(
+                        "send_alert_exception",
+                        monitor_id,
+                        alert_type,
+                        error_message,
+                    )
+                    logger.info(
+                        "alert_queued",
+                        alert_type=alert_type,
+                        monitor_id=monitor_id,
+                        failure_count=failure_count,
+                    )
+
+                elif status_code is not None:
+                    # HTTP error (got response but status is 4xx or 5xx)
+                    await redis.enqueue_job(
+                        "send_alert_http_error",
+                        monitor_id,
+                    )
+                    logger.info(
+                        "alert_queued",
+                        alert_type="http_error",
+                        monitor_id=monitor_id,
+                        status_code=status_code,
+                        failure_count=failure_count,
+                    )
+            else:
+                logger.info(
+                    "alert_suppressed",
+                    monitor_id=monitor_id,
+                    failure_count=failure_count,
+                    threshold=FAILURE_THRESHOLD,
+                    reason="anti_flapping",
+                )
 
         logger.info(
             "check_completed",
@@ -327,8 +452,9 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             status_code=status_code,
             duration_ms=duration_ms,
             next_check=next_check.isoformat(),
+            state_transition=f"{previous_status} -> {is_success}",
         )
-        
+
         return {
             "status": "completed",
             "monitor_id": monitor_id,
@@ -409,6 +535,7 @@ class WorkerSettings:
         check_monitor,
         send_alert_http_error,
         send_alert_exception,
+        send_alert_recovery,
     ]
     cron_jobs = [
         cron(
