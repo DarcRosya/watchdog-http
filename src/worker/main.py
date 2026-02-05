@@ -148,10 +148,6 @@ async def send_alert_exception(
     alert_type: str,
     error_message: str | None = None
 ) -> dict[str, Any]:
-    """
-    Send notification about connection/timeout/request errors.
-    These errors don't depend on log data, just the error type.
-    """
     session_factory = ctx["session_factory"]
     notifier: TelegramNotifier = ctx["notifier"]
 
@@ -218,13 +214,10 @@ async def send_alert_exception(
 
 
 # =============================================================================
-# TASK: Send recovery alert
+# TASK: Send recovery alert (transitions from ERROR to OK).
 # =============================================================================
 
 async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
-    """
-    Send notification when a monitor recovers (transitions from ERROR to OK).
-    """
     session_factory = ctx["session_factory"]
     notifier: TelegramNotifier = ctx["notifier"]
 

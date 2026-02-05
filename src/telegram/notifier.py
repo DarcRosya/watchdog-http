@@ -17,6 +17,61 @@ class AlertType(Enum):
     RECOVERY = "recovery"                # Site is back online
 
 
+# HTTP status code error descriptions
+HTTP_STATUS_ERRORS = {
+    # Client errors (4xx)
+    400: "Bad Request",
+    401: "Unauthorized",
+    402: "Payment Required",
+    403: "Forbidden",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    406: "Not Acceptable",
+    407: "Proxy Authentication Required",
+    408: "Request Timeout",
+    409: "Conflict",
+    410: "Gone",
+    411: "Length Required",
+    412: "Precondition Failed",
+    413: "Payload Too Large",
+    414: "URI Too Long",
+    415: "Unsupported Media Type",
+    416: "Range Not Satisfiable",
+    417: "Expectation Failed",
+    418: "I'm a teapot",
+    421: "Misdirected Request",
+    422: "Unprocessable Entity",
+    423: "Locked",
+    424: "Failed Dependency",
+    425: "Too Early",
+    426: "Upgrade Required",
+    428: "Precondition Required",
+    429: "Too Many Requests",
+    431: "Request Header Fields Too Large",
+    451: "Unavailable For Legal Reasons",
+    
+    # Server errors (5xx)
+    500: "Internal Server Error",
+    501: "Not Implemented",
+    502: "Bad Gateway",
+    503: "Service Unavailable",
+    504: "Gateway Timeout",
+    505: "HTTP Version Not Supported",
+    506: "Variant Also Negotiates",
+    507: "Insufficient Storage",
+    508: "Loop Detected",
+    510: "Not Extended",
+    511: "Network Authentication Required",
+}
+
+
+def get_http_error_description(status_code: int) -> str:
+    return HTTP_STATUS_ERRORS.get(
+        status_code, 
+        f"HTTP Error {status_code}" if status_code else "Unknown Error"
+    )
+
+
 
 class TelegramNotifier:
     """
@@ -79,30 +134,31 @@ class TelegramNotifier:
 # Pre-formatted messages for quick notifications
 PREDEFINED_MESSAGES = {
     AlertType.HTTP_ERROR: (
-        "🔴 <b>HTTP Ошибка</b>\n\n"
+        "🔴 <b>HTTP Error</b>\n\n"
         "📍 {monitor_name}\n"
         "🔗 {url}\n\n"
-        "Код ответа: {status_code}"
+        "Status Code: {status_code}\n"
+        "Reason: {error}"
         "{duration_part}"
     ),
     AlertType.TIMEOUT: (
-        "⏱️ <b>Таймаут</b>\n\n"
+        "⏱️ <b>Timeout</b>\n\n"
         "📍 {monitor_name}\n"
         "🔗 {url}\n\n"
-        "Сайт не ответил в течение установленного времени ожидания."
+        "The site did not respond within the expected time."
     ),
     AlertType.CONNECTION_ERROR: (
-        "🔌 <b>Ошибка подключения</b>\n\n"
+        "🔌 <b>Connection Error</b>\n\n"
         "📍 {monitor_name}\n"
         "🔗 {url}\n\n"
-        "Не удалось установить соединение с сервером.\n"
-        "Возможные причины: сервер недоступен, проблемы с DNS, сеть."
+        "Failed to establish connection to the server.\n"
+        "Possible causes: server unavailable, DNS issues, network problems."
     ),
     AlertType.REQUEST_ERROR: (
-        "❌ <b>Ошибка запроса</b>\n\n"
+        "❌ <b>Request Error</b>\n\n"
         "📍 {monitor_name}\n"
         "🔗 {url}\n\n"
-        "Произошла ошибка при выполнении запроса:\n"
+        "An error occurred while executing the request:\n"
         "{error}"
     ),
 }
@@ -117,11 +173,15 @@ def get_predefined_message(
     duration_ms: int | None = None
 ) -> str:
     """Get a pre-formatted message for quick notifications."""
-    template = PREDEFINED_MESSAGES.get(alert_type, "⚠️ Проблема с мониторингом {url}")
+    template = PREDEFINED_MESSAGES.get(alert_type, "⚠️ Monitoring issue {url}")
     
     # Format duration nicely if provided
-    duration_part = f"\n⏱ Время ответа: {duration_ms}ms" if duration_ms else ""
-    
+    duration_part = f"\n⏱ Response time: {duration_ms}ms" if duration_ms else ""
+
+    # Get detailed error description for HTTP errors
+    if alert_type == AlertType.HTTP_ERROR and status_code:
+        error = get_http_error_description(status_code)
+
     return template.format(
         monitor_name=monitor_name or "Noname",
         url=url,
