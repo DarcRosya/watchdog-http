@@ -13,10 +13,12 @@ class UserService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_user(
-        self, username: str, telegram_chat_id: Optional[int] = None
-    ) -> User:
-        user = User(username=username, telegram_chat_id=telegram_chat_id)
+    async def create_user(self) -> User:
+        """Create user with auto-generated username and API key."""
+        from src.utils.random_generate import generate_random_username
+
+        username = generate_random_username()
+        user = User(username=username)
         self.session.add(user)
         await self.session.commit()
         await self.session.refresh(user)
@@ -49,18 +51,24 @@ class UserService:
 
         return result.scalars().first()
 
-    async def get_or_create_user(
-        self, username: str, telegram_chat_id: Optional[int] = None
-    ) -> tuple[User, bool]:
-        if telegram_chat_id:
-            existing = await self.get_user_by_telegram_id(telegram_chat_id)
-            if existing:
-                logger.info(
-                    "user_found_by_telegram",
-                    username=existing.username,
-                    telegram_chat_id=telegram_chat_id,
-                )
-                return existing, False
+    # async def get_or_create_user(
+    #     self, username: str, telegram_chat_id: Optional[int] = None
+    # ) -> tuple[User, bool]:
+    #     """Legacy method ""
+    #     if telegram_chat_id:
+    #         existing = await self.get_user_by_telegram_id(telegram_chat_id)
+    #         if existing:
+    #             logger.info(
+    #                 "user_found_by_telegram",
+    #                 username=existing.username,
+    #                 telegram_chat_id=telegram_chat_id,
+    #             )
+    #             return existing, False
 
-        new_user = await self.create_user(username, telegram_chat_id)
-        return new_user, True
+    #     # Create user with specified username (not auto-generated)
+    #     user = User(username=username, telegram_chat_id=telegram_chat_id)
+    #     self.session.add(user)
+    #     await self.session.commit()
+    #     await self.session.refresh(user)
+    #     logger.info("user_created", user_id=user.id, username=user.username)
+    #     return user, True

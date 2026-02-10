@@ -1,8 +1,10 @@
-from typing import Annotated
+from typing import Annotated, AsyncGenerator
 
+import redis.asyncio as aioredis
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
 
+from src.config.settings import settings
 from src.core.database import DBSession
 from src.models.user import User
 from src.services.user import UserService
@@ -38,4 +40,18 @@ async def get_current_user(
     return user
 
 
+async def get_redis() -> AsyncGenerator[aioredis.Redis, None]:
+    """Redis connection dependency for API routes."""
+    redis_client = aioredis.from_url(
+        f"redis://{settings.redis.R_HOST}:{settings.redis.R_PORT}",
+        encoding="utf-8",
+        decode_responses=True,
+    )
+    try:
+        yield redis_client
+    finally:
+        await redis_client.aclose()
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+RedisClient = Annotated[aioredis.Redis, Depends(get_redis)]

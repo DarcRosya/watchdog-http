@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, status
 from src.core.database import DBSession
 from src.core.dependencies import CurrentUser
 from src.core.logging import get_logger
-from src.schemas.user import UserCreate, UserResponse
+from src.schemas.user import UserResponse
 from src.schemas.auth import AuthRequest, AuthResponse
 from src.services.user import UserService
 
@@ -16,16 +16,16 @@ router = APIRouter(prefix="/users", tags=["Users"])
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new user",
-    description="Registers a new user in the monitoring system. Returns user data including API key.",
+    description="Registers a new user with auto-generated username and API key.",
 )
-async def create_user(user_data: UserCreate, session: DBSession):
+async def create_user(session: DBSession):
     service = UserService(session)
 
-    logger.info("user_registration_attempt", username=user_data.username)
+    logger.info("user_registration_attempt")
 
-    user = await service.create_user(
-        username=user_data.username, telegram_chat_id=user_data.telegram_chat_id
-    )
+    user = await service.create_user()
+
+    logger.info("user_created", username=user.username, user_id=user.id)
 
     return user
 

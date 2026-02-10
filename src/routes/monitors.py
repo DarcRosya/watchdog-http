@@ -3,7 +3,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, status
 
 from src.core.database import DBSession
-from src.core.dependencies import CurrentUser
+from src.core.dependencies import CurrentUser, RedisClient
 from src.core.logging import get_logger
 from src.schemas.monitor import MonitorCreate, MonitorResponse, MonitoringStatus
 from src.services.monitor import MonitorService
@@ -18,8 +18,8 @@ router = APIRouter(prefix="/monitors", tags=["Monitors"])
     summary="Get all monitors for current user",
     description="Returns a list of all monitoring URLs for the authenticated user.",
 )
-async def get_monitors(user: CurrentUser, session: DBSession):
-    service = MonitorService(session)
+async def get_monitors(user: CurrentUser, session: DBSession, redis: RedisClient):
+    service = MonitorService(session, redis)
     return await service.get_all_by_user(user.id)
 
 
@@ -31,7 +31,10 @@ async def get_monitors(user: CurrentUser, session: DBSession):
     description="Add one or more URLs to monitor. Each URL will be checked at the specified interval.",
 )
 async def create_monitors_bulk(
-    monitors_data: List[MonitorCreate], user: CurrentUser, session: DBSession
+    monitors_data: List[MonitorCreate],
+    user: CurrentUser,
+    session: DBSession,
+    redis: RedisClient,
 ):
     logger.info(
         "monitors_bulk_create",
@@ -40,7 +43,7 @@ async def create_monitors_bulk(
         count=len(monitors_data),
         urls=[str(m.url) for m in monitors_data],
     )
-    service = MonitorService(session)
+    service = MonitorService(session, redis)
     new_monitors = await service.bulk_create_monitors(monitors_data, user_id=user.id)
     return new_monitors
 
@@ -51,8 +54,8 @@ async def create_monitors_bulk(
     summary="Start all monitoring",
     description="Activate all monitors for the current user. Worker will begin checking URLs.",
 )
-async def start_monitoring(user: CurrentUser, session: DBSession):
-    service = MonitorService(session)
+async def start_monitoring(user: CurrentUser, session: DBSession, redis: RedisClient):
+    service = MonitorService(session, redis)
     return await service.start_all(user.id, user.username)
 
 
@@ -62,8 +65,8 @@ async def start_monitoring(user: CurrentUser, session: DBSession):
     summary="Stop all monitoring",
     description="Deactivate all monitors for the current user. Worker will stop checking URLs.",
 )
-async def stop_monitoring(user: CurrentUser, session: DBSession):
-    service = MonitorService(session)
+async def stop_monitoring(user: CurrentUser, session: DBSession, redis: RedisClient):
+    service = MonitorService(session, redis)
     return await service.stop_all(user.id, user.username)
 
 
@@ -73,8 +76,10 @@ async def stop_monitoring(user: CurrentUser, session: DBSession):
     summary="Toggle monitor active state",
     description="Toggle a specific monitor on/off.",
 )
-async def toggle_monitor(monitor_id: int, user: CurrentUser, session: DBSession):
-    service = MonitorService(session)
+async def toggle_monitor(
+    monitor_id: int, user: CurrentUser, session: DBSession, redis: RedisClient
+):
+    service = MonitorService(session, redis)
     monitor = await service.get_by_id(monitor_id, user.id)
 
     if not monitor:
@@ -92,8 +97,10 @@ async def toggle_monitor(monitor_id: int, user: CurrentUser, session: DBSession)
     summary="Delete a monitor",
     description="Remove a monitor from the system.",
 )
-async def delete_monitor(monitor_id: int, user: CurrentUser, session: DBSession):
-    service = MonitorService(session)
+async def delete_monitor(
+    monitor_id: int, user: CurrentUser, session: DBSession, redis: RedisClient
+):
+    service = MonitorService(session, redis)
     monitor = await service.get_by_id(monitor_id, user.id)
 
     if not monitor:
@@ -115,9 +122,10 @@ async def get_monitor_statistics(
     monitor_id: int,
     user: CurrentUser,
     session: DBSession,
+    redis: RedisClient,
     hours: int = 24,
 ):
-    service = MonitorService(session)
+    service = MonitorService(session, redis)
 
     monitor = await service.get_by_id(monitor_id, user.id)
     if not monitor:

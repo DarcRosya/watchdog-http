@@ -59,24 +59,24 @@ check: format lint ## Run all checks (format + lint)
 migrate: ## Create a new migration
 	@echo "$(BLUE)Creating new migration...$(NC)"
 	@read -p "Migration message: " msg; \
-	cd src && poetry run alembic revision --autogenerate -m "$$msg"
+	cd src && PYTHONPATH=.. poetry run alembic revision --autogenerate -m "$$msg"
 	@echo "$(GREEN)✓ Migration created$(NC)"
 
 upgrade: ## Upgrade database to latest migration
 	@echo "$(BLUE)Upgrading database...$(NC)"
-	cd src && poetry run alembic upgrade head
+	cd src && PYTHONPATH=.. poetry run alembic upgrade head
 	@echo "$(GREEN)✓ Database upgraded$(NC)"
 
 downgrade: ## Downgrade database by one revision
 	@echo "$(BLUE)Downgrading database...$(NC)"
-	cd src && poetry run alembic downgrade -1
+	cd src && PYTHONPATH=.. poetry run alembic downgrade -1
 	@echo "$(GREEN)✓ Database downgraded$(NC)"
 
 db-reset: ## Reset database (downgrade all + upgrade head)
 	@echo "$(YELLOW)⚠ This will reset the database!$(NC)"
 	@read -p "Are you sure? [y/N] " confirm; \
 	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
-		cd src && poetry run alembic downgrade base && poetry run alembic upgrade head; \
+		cd src && PYTHONPATH=.. poetry run alembic downgrade base && PYTHONPATH=.. poetry run alembic upgrade head; \
 		echo "$(GREEN)✓ Database reset complete$(NC)"; \
 	else \
 		echo "$(RED)Aborted$(NC)"; \

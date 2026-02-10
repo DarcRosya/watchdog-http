@@ -3,7 +3,7 @@ from typing import Any
 
 import httpx
 from arq import cron
-from sqlalchemy import select, update
+from sqlalchemy import select, func
 
 from src.config.settings import settings
 from src.core.database import async_session_factory
@@ -33,6 +33,90 @@ def get_next_aligned_time(interval_seconds: int = 60) -> datetime:
     return aligned_now + timedelta(seconds=interval_seconds)
 
 
+async def hydrate_cache(ctx: dict[str, Any]):
+    """Initialize Redis cache with active monitors and restore last known states from DB logs."""
+    session_factory = ctx["session_factory"]
+    redis = ctx["redis"]
+
+    logger.info("hydrate_cache_started")
+
+    # Clear old scheduler data
+    await redis.delete("scheduler")
+
+    async with session_factory() as session:
+        latest_log_subquery = (
+            select(
+                ResultLog.monitor_id,
+                func.max(ResultLog.start_time).label("last_start_time"),
+            )
+            .group_by(ResultLog.monitor_id)
+            .subquery()
+        )
+
+        query = (
+            select(Monitor, ResultLog)
+            .outerjoin(
+                latest_log_subquery,
+                Monitor.id == latest_log_subquery.c.monitor_id,
+            )
+            .outerjoin(
+                ResultLog,
+                (ResultLog.monitor_id == latest_log_subquery.c.monitor_id)
+                & (ResultLog.start_time == latest_log_subquery.c.last_start_time),
+            )
+            .where(Monitor.is_active == True)  # noqa: E712
+        )
+
+        result = await session.execute(query)
+        rows = result.all()
+
+        if not rows:
+            logger.info("hydrate_cache_no_monitors")
+            return
+
+        logger.info("hydrate_cache_loading", count=len(rows))
+
+        async with redis.pipeline() as pipe:
+            for monitor, last_log in rows:
+                # Store interval
+                pipe.set(f"monitor:{monitor.id}:interval", monitor.interval)
+
+                # Store full config as JSON to avoid DB hits on every check
+                config = {
+                    "url": monitor.url,
+                    "method": monitor.method,
+                    "headers": monitor.headers or {},
+                    "body": monitor.body,
+                    "is_active": monitor.is_active,
+                    "name": monitor.name,
+                    "user_id": monitor.user_id,
+                }
+                import json
+
+                pipe.setex(f"monitor:{monitor.id}:config", 86400, json.dumps(config))
+
+                next_run = get_next_aligned_time(monitor.interval).timestamp()
+                pipe.zadd("scheduler", {str(monitor.id): next_run})
+
+                if last_log:
+                    # Restore state from last check (TTL 24h to auto-cleanup)
+                    # NOTE: We intentionally DO NOT restore last_check_time here
+                    # to prevent false recovery alerts on first check after worker restart
+                    state_key = f"monitor:{monitor.id}:state"
+                    pipe.setex(state_key, 86400, "1" if last_log.is_success else "0")
+
+                    logger.debug(
+                        "state_restored",
+                        monitor_id=monitor.id,
+                        last_status=last_log.is_success,
+                        last_check=last_log.start_time.isoformat(),
+                    )
+
+            await pipe.execute()
+
+        logger.info("hydrate_cache_completed", monitors_loaded=len(rows))
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     logger.info(
         "startup",
@@ -53,6 +137,8 @@ async def startup(ctx: dict[str, Any]) -> None:
 
     # reuses http_client
     ctx["notifier"] = TelegramNotifier(http_client=ctx["http_client"])
+
+    await hydrate_cache(ctx)
 
     logger.info("worker_ready")
 
@@ -302,72 +388,105 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
 
     FAILURE_THRESHOLD = 2
 
-    async with session_factory() as session:
-        query = select(Monitor).where(Monitor.id == monitor_id)
-        result = await session.execute(query)
-        monitor = result.scalars().first()
+    # Try loading config from Redis first (avoids DB hit)
+    config_key = f"monitor:{monitor_id}:config"
+    config_raw = await redis.get(config_key)
 
-        if not monitor:
-            logger.warning("monitor_not_found", monitor_id=monitor_id)
-            return {"status": "skipped", "reason": "not_found"}
+    if config_raw:
+        import json
 
-        if not monitor.is_active:
-            logger.debug("monitor_paused", monitor_id=monitor_id, url=monitor.url)
+        config = json.loads(config_raw)
+
+        if not config.get("is_active", True):
+            logger.debug("monitor_paused", monitor_id=monitor_id, url=config["url"])
             return {"status": "skipped", "reason": "paused"}
 
-        previous_status = monitor.last_check_status
+        monitor_url = config["url"]
+        monitor_method = config["method"]
+        monitor_headers = config.get("headers") or {}
+        monitor_body = config.get("body")
+        monitor_name = config.get("name")
+        user_id = config["user_id"]
+    else:
+        # Fallback to DB if config not in Redis (shouldn't happen normally)
+        async with session_factory() as session:
+            monitor = await session.get(Monitor, monitor_id)
+            if not monitor:
+                logger.warning("monitor_not_found", monitor_id=monitor_id)
+                return {"status": "skipped", "reason": "not_found"}
 
-        logger.debug(
-            "check_started",
-            monitor_id=monitor_id,
-            url=monitor.url,
-            previous_status=previous_status,
+            if not monitor.is_active:
+                logger.debug("monitor_paused", monitor_id=monitor_id, url=monitor.url)
+                return {"status": "skipped", "reason": "paused"}
+
+            monitor_url = monitor.url
+            monitor_method = monitor.method
+            monitor_headers = monitor.headers or {}
+            monitor_body = monitor.body
+            monitor_name = monitor.name
+            user_id = monitor.user_id
+
+    state_key = f"monitor:{monitor_id}:state"
+    cached_state = await redis.get(state_key)
+
+    if cached_state is None:
+        previous_status = None
+    else:
+        # Redis returns bytes, need to decode or compare with bytes
+        previous_status = True if cached_state.decode() == "1" else False
+
+    logger.debug(
+        "check_started",
+        monitor_id=monitor_id,
+        url=monitor_url,
+        previous_status=previous_status,
+    )
+
+    start_time = datetime.now(timezone.utc)
+    status_code = None
+    is_success = False
+    error_message = None
+
+    try:
+        # body and head placeholder
+        response = await http_client.request(
+            method=monitor_method,
+            url=monitor_url,
+            headers=monitor_headers,
         )
 
-        start_time = datetime.now(timezone.utc)
-        status_code = None
-        is_success = False
-        error_message = None
+        status_code = response.status_code
+        is_success = 200 <= status_code < 400
 
-        try:
-            # body and head placeholder
-            response = await http_client.request(
-                method=monitor.method,
-                url=monitor.url,
-                headers=monitor.headers,
-            )
+    except httpx.TimeoutException:
+        error_message = "Timeout: the site did not respond within 10 seconds"
+        alert_type = "timeout"
+        logger.warning("check_timeout", monitor_id=monitor_id, url=monitor_url)
 
-            status_code = response.status_code
-            is_success = 200 <= status_code < 400
+    except httpx.ConnectError as e:
+        error_message = f"Connection error: {str(e)}"
+        alert_type = "connection"
+        logger.warning(
+            "check_connection_error",
+            monitor_id=monitor_id,
+            url=monitor_url,
+            error=str(e),
+        )
 
-        except httpx.TimeoutException:
-            error_message = "Timeout: the site did not respond within 10 seconds"
-            alert_type = "timeout"
-            logger.warning("check_timeout", monitor_id=monitor_id, url=monitor.url)
+    except httpx.RequestError as e:
+        error_message = f"Request error: {str(e)}"
+        alert_type = "request"
+        logger.error(
+            "check_request_error",
+            monitor_id=monitor_id,
+            url=monitor_url,
+            error=str(e),
+        )
 
-        except httpx.ConnectError as e:
-            error_message = f"Connection error: {str(e)}"
-            alert_type = "connection"
-            logger.warning(
-                "check_connection_error",
-                monitor_id=monitor_id,
-                url=monitor.url,
-                error=str(e),
-            )
+    end_time = datetime.now(timezone.utc)
+    duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
-        except httpx.RequestError as e:
-            error_message = f"Request error: {str(e)}"
-            alert_type = "request"
-            logger.error(
-                "check_request_error",
-                monitor_id=monitor_id,
-                url=monitor.url,
-                error=str(e),
-            )
-
-        end_time = datetime.now(timezone.utc)
-        duration_ms = int((end_time - start_time).total_seconds() * 1000)
-
+    async with session_factory() as session:
         log_entry = ResultLog(
             monitor_id=monitor_id,
             start_time=start_time,
@@ -377,120 +496,160 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             error_message=error_message,
         )
         session.add(log_entry)
-
-        next_check = get_next_aligned_time(monitor.interval)  # logs
-
-        # Use update() instead of modifying the object
-        # This is an atomic operation safer in case of concurrent access
-        await session.execute(
-            update(Monitor)
-            .where(Monitor.id == monitor_id)
-            .values(last_check_status=is_success)
-        )
-
         await session.commit()
 
-        failure_key = f"monitor:{monitor_id}:failures"
+    # Read old timestamp BEFORE updating (needed for recovery check)
+    timestamp_key = f"monitor:{monitor_id}:last_check_time"
+    old_timestamp_raw = await redis.get(timestamp_key)
 
-        if is_success:
-            # Success - reset failure counter
-            current_failures = await redis.get(failure_key)
-            if current_failures:
-                await redis.delete(failure_key)
-                logger.debug("failure_counter_reset", monitor_id=monitor_id)
+    await redis.setex(state_key, 86400, "1" if is_success else "0")
+    await redis.setex(timestamp_key, 86400, str(int(start_time.timestamp())))
 
-            # Check for state transition: ERROR -> OK (recovery)
-            if previous_status is False:
+    failure_key = f"monitor:{monitor_id}:failures"
+
+    if is_success:
+        # Success - reset failure counter
+        current_failures = await redis.get(failure_key)
+        if current_failures:
+            await redis.delete(failure_key)
+            logger.debug("failure_counter_reset", monitor_id=monitor_id)
+
+        # Check for state transition: ERROR -> OK (recovery)
+        # Only send recovery alert if we know previous state was ERROR (not None)
+        if previous_status is False:
+            # Check if this is a real recovery (last check was recent)
+            # vs restored state from old DB logs (after worker restart)
+            should_send_recovery = True
+            
+            if old_timestamp_raw is None:
+                # No previous timestamp = first check after worker startup
+                # This is a restored state from DB, not a real recovery
+                should_send_recovery = False
+                logger.info(
+                    "recovery_suppressed_first_check",
+                    monitor_id=monitor_id,
+                    reason="no_previous_timestamp",
+                )
+            elif old_timestamp_raw:
+                old_timestamp = int(old_timestamp_raw)
+                time_since_last_check = start_time.timestamp() - old_timestamp
+
+                # If last check was >1 hour ago, this is likely a stale state from DB
+                # Don't send recovery alert (avoid false positives after restart)
+                if time_since_last_check > 3600:
+                    should_send_recovery = False
+                    logger.info(
+                        "recovery_suppressed_stale_state",
+                        monitor_id=monitor_id,
+                        time_since_last_check=int(time_since_last_check),
+                        reason="last_check_too_old",
+                    )
+
+            if should_send_recovery:
                 # Monitor recovered! Send recovery notification
                 await redis.enqueue_job(
                     "send_alert_recovery",
                     monitor_id,
                 )
                 logger.info(
-                    "recovery_alert_queued", monitor_id=monitor_id, url=monitor.url
+                    "recovery_alert_queued", monitor_id=monitor_id, url=monitor_url
+                )
+        elif previous_status is None:
+            logger.debug(
+                "first_successful_check",
+                monitor_id=monitor_id,
+                reason="no_previous_state",
+            )
+
+    else:
+        # Failure - increment counter
+        current_failures = await redis.get(failure_key)
+        failure_count = int(current_failures) if current_failures else 0
+        failure_count += 1
+
+        # Store with TTL (e.g., 1 hour) to auto-cleanup old counters
+        await redis.setex(failure_key, 3600, str(failure_count))
+
+        logger.info(
+            "failure_detected",
+            monitor_id=monitor_id,
+            failure_count=failure_count,
+            threshold=FAILURE_THRESHOLD,
+            previous_status=previous_status,
+        )
+
+        # Only send alert if:
+        # 1. Failure count >= threshold (anti-flapping)
+        # 2. OR this is first failure after being OK (state transition OK -> ERROR)
+        should_alert = failure_count >= FAILURE_THRESHOLD or (
+            previous_status is True and failure_count == 1
+        )
+
+        if should_alert:
+            if alert_type:
+                # Exception-based error (timeout, connection error, request error)
+                await redis.enqueue_job(
+                    "send_alert_exception",
+                    monitor_id,
+                    alert_type,
+                    error_message,
+                )
+                logger.info(
+                    "alert_queued",
+                    alert_type=alert_type,
+                    monitor_id=monitor_id,
+                    failure_count=failure_count,
                 )
 
+            elif status_code is not None:
+                # HTTP error (got response but status is 4xx or 5xx)
+                await redis.enqueue_job(
+                    "send_alert_http_error",
+                    monitor_id,
+                )
+                logger.info(
+                    "alert_queued",
+                    alert_type="http_error",
+                    monitor_id=monitor_id,
+                    status_code=status_code,
+                    failure_count=failure_count,
+                )
         else:
-            # Failure - increment counter
-            current_failures = await redis.get(failure_key)
-            failure_count = int(current_failures) if current_failures else 0
-            failure_count += 1
-
-            # Store with TTL (e.g., 1 hour) to auto-cleanup old counters
-            await redis.setex(failure_key, 3600, str(failure_count))
-
             logger.info(
-                "failure_detected",
+                "alert_suppressed",
                 monitor_id=monitor_id,
                 failure_count=failure_count,
                 threshold=FAILURE_THRESHOLD,
-                previous_status=previous_status,
+                reason="anti_flapping",
             )
 
-            # Only send alert if:
-            # 1. Failure count >= threshold (anti-flapping)
-            # 2. OR this is first failure after being OK (state transition OK -> ERROR)
-            should_alert = failure_count >= FAILURE_THRESHOLD or (
-                previous_status is True and failure_count == 1
-            )
+    # Get next scheduled check from Redis
+    next_run_score = await redis.zscore("scheduler", str(monitor_id))
+    next_check_iso = None
+    if next_run_score:
+        next_check_iso = datetime.fromtimestamp(
+            next_run_score, tz=timezone.utc
+        ).isoformat()
 
-            if should_alert:
-                if alert_type:
-                    # Exception-based error (timeout, connection error, request error)
-                    await redis.enqueue_job(
-                        "send_alert_exception",
-                        monitor_id,
-                        alert_type,
-                        error_message,
-                    )
-                    logger.info(
-                        "alert_queued",
-                        alert_type=alert_type,
-                        monitor_id=monitor_id,
-                        failure_count=failure_count,
-                    )
+    logger.info(
+        "check_completed",
+        monitor_id=monitor_id,
+        url=monitor_url,
+        is_success=is_success,
+        status_code=status_code,
+        duration_ms=duration_ms,
+        next_check=next_check_iso,
+        state_transition=f"{previous_status} -> {is_success}",
+    )
 
-                elif status_code is not None:
-                    # HTTP error (got response but status is 4xx or 5xx)
-                    await redis.enqueue_job(
-                        "send_alert_http_error",
-                        monitor_id,
-                    )
-                    logger.info(
-                        "alert_queued",
-                        alert_type="http_error",
-                        monitor_id=monitor_id,
-                        status_code=status_code,
-                        failure_count=failure_count,
-                    )
-            else:
-                logger.info(
-                    "alert_suppressed",
-                    monitor_id=monitor_id,
-                    failure_count=failure_count,
-                    threshold=FAILURE_THRESHOLD,
-                    reason="anti_flapping",
-                )
-
-        logger.info(
-            "check_completed",
-            monitor_id=monitor_id,
-            url=monitor.url,
-            is_success=is_success,
-            status_code=status_code,
-            duration_ms=duration_ms,
-            next_check=next_check.isoformat(),
-            state_transition=f"{previous_status} -> {is_success}",
-        )
-
-        return {
-            "status": "completed",
-            "monitor_id": monitor_id,
-            "url": monitor.url,
-            "is_success": is_success,
-            "status_code": status_code,
-            "duration_ms": duration_ms,
-        }
+    return {
+        "status": "completed",
+        "monitor_id": monitor_id,
+        "url": monitor_url,
+        "is_success": is_success,
+        "status_code": status_code,
+        "duration_ms": duration_ms,
+    }
 
 
 # =============================================================================
@@ -499,53 +658,69 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
 
 
 async def scheduler(ctx: dict[str, Any]) -> None:
+    """Scheduler that processes due monitors and enqueues check tasks."""
+    redis = ctx["redis"]
     session_factory = ctx["session_factory"]
 
     logger.debug("scheduler_started", timestamp=datetime.now(timezone.utc).isoformat())
 
-    async with session_factory() as session:
-        # Get monitors that are due for checking
-        now = datetime.now(timezone.utc)
+    now_ts = datetime.now(timezone.utc).timestamp()
 
-        query = (
-            select(Monitor)
-            .where(
-                Monitor.is_active == True, Monitor.next_check_at <= now  # noqa: E712
-            )
-            .limit(100)
+    # Check total backlog BEFORE limiting to 100 (backlog monitoring)
+    total_due = await redis.zcount("scheduler", "-inf", now_ts)
+
+    if total_due > 100:
+        logger.warning(
+            "scheduler_backlog_high",
+            total_due=total_due,
+            processing_limit=100,
+            backlog=total_due - 100,
         )
 
-        result = await session.execute(query)
-        monitors = result.scalars().all()
+    due_monitors = await redis.zrangebyscore(
+        "scheduler", min="-inf", max=now_ts, start=0, num=100
+    )
 
-        if not monitors:
-            logger.debug("scheduler_no_monitors_due")
-            return
+    if not due_monitors:
+        logger.debug("scheduler_idle")
+        return
 
-        logger.info("scheduler_monitors_found", count=len(monitors))
+    logger.info("scheduler_processing", count=len(due_monitors))
 
-        for monitor in monitors:
-            await ctx["redis"].enqueue_job("check_monitor", monitor.id)
+    for monitor_id_raw in due_monitors:
+        monitor_id = int(monitor_id_raw)
 
-            next_aligned_time = get_next_aligned_time(monitor.interval)
+        await redis.enqueue_job("check_monitor", monitor_id)
 
-            logger.debug(
-                "monitor_queued",
-                monitor_id=monitor.id,
-                name=monitor.name,
-                url=monitor.url,
-            )
+        interval_key = f"monitor:{monitor_id}:interval"
+        interval_raw = await redis.get(interval_key)
 
-            # Update next_check_at immediately to avoid duplicates.
-            # Even if the task fails, the next scheduler will create it again.
-            await session.execute(
-                update(Monitor)
-                .where(Monitor.id == monitor.id)
-                .values(next_check_at=next_aligned_time)
-            )
+        if interval_raw:
+            interval = int(interval_raw)
+            next_run = now_ts + interval
+            await redis.zadd("scheduler", {str(monitor_id): next_run})
+        else:
+            async with session_factory() as session:
+                monitor = await session.get(Monitor, monitor_id)
+                if not monitor:
+                    logger.warning(
+                        "scheduler_zombie_task_removed", monitor_id=monitor_id
+                    )
+                    await redis.zrem("scheduler", str(monitor_id))
+                    await redis.delete(interval_key)
+                    continue
 
-        await session.commit()
-        logger.debug("scheduler_completed", queued_count=len(monitors))
+                if not monitor.is_active:
+                    logger.info("scheduler_paused_task_removed", monitor_id=monitor_id)
+                    await redis.zrem("scheduler", str(monitor_id))
+                    continue
+
+                await redis.set(interval_key, monitor.interval)
+
+                next_run = now_ts + monitor.interval
+                await redis.zadd("scheduler", {str(monitor_id): next_run})
+
+    logger.debug("scheduler_completed", queued_count=len(due_monitors))
 
 
 # =============================================================================
@@ -574,7 +749,7 @@ class WorkerSettings:
     cron_jobs = [
         cron(
             scheduler,
-            second={0},
+            second={0, 15, 30, 45},  # Every 15 seconds for better UX
             unique=True,  # Do not start a new one until the old one is finished
         )
     ]

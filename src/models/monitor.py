@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Index, String, Text, func, ForeignKey
+from sqlalchemy import String, Text, func, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 
 class Monitor(Base):
     __tablename__ = "monitors"
-    __table_args__ = (Index("scheduler_index", "is_active", "next_check_at"),)
 
     id: Mapped[intpk]
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
@@ -27,9 +26,5 @@ class Monitor(Base):
 
     interval: Mapped[int] = mapped_column(nullable=False, default=60)  # in seconds
     is_active: Mapped[bool] = mapped_column(default=True)
-
-    next_check_at: Mapped[aware_datetime]
-
-    last_check_status: Mapped[bool] = mapped_column(nullable=True)
 
     created_at: Mapped[aware_datetime] = mapped_column(server_default=func.now())

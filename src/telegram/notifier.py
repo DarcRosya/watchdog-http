@@ -161,6 +161,12 @@ PREDEFINED_MESSAGES = {
         "An error occurred while executing the request:\n"
         "{error}"
     ),
+    AlertType.RECOVERY: (
+        "✅ <b>Recovered</b>\n\n"
+        "📍 {monitor_name}\n"
+        "🔗 {url}\n\n"
+        "The service is back online and responding normally."
+    ),
 }
 
 
