@@ -10,9 +10,13 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[intpk]
-    
+
     username: Mapped[str] = mapped_column(String(100), nullable=False)
-    api_key: Mapped[str] = mapped_column(String(64), unique=True, index=True, default=generate_api_key)
-    telegram_chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=True)
+    api_key: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, default=generate_api_key
+    )
+    telegram_chat_id: Mapped[int] = mapped_column(
+        BigInteger, unique=True, index=True, nullable=True
+    )
 
     created_at: Mapped[aware_datetime] = mapped_column(server_default=func.now())

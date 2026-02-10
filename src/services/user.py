@@ -14,20 +14,15 @@ class UserService:
         self.session = session
 
     async def create_user(
-        self, 
-        username: str, 
-        telegram_chat_id: Optional[int] = None
+        self, username: str, telegram_chat_id: Optional[int] = None
     ) -> User:
-        user = User(
-            username=username,
-            telegram_chat_id=telegram_chat_id
-        )
+        user = User(username=username, telegram_chat_id=telegram_chat_id)
         self.session.add(user)
         await self.session.commit()
         await self.session.refresh(user)
-        
+
         logger.info("user_created", user_id=user.id, username=user.username)
-        
+
         return user
 
     async def get_user_by_id(self, user_id: int) -> Optional[User]:
@@ -55,14 +50,16 @@ class UserService:
         return result.scalars().first()
 
     async def get_or_create_user(
-        self, 
-        username: str, 
-        telegram_chat_id: Optional[int] = None
+        self, username: str, telegram_chat_id: Optional[int] = None
     ) -> tuple[User, bool]:
         if telegram_chat_id:
             existing = await self.get_user_by_telegram_id(telegram_chat_id)
             if existing:
-                logger.info("user_found_by_telegram", username=existing.username, telegram_chat_id=telegram_chat_id)
+                logger.info(
+                    "user_found_by_telegram",
+                    username=existing.username,
+                    telegram_chat_id=telegram_chat_id,
+                )
                 return existing, False
 
         new_user = await self.create_user(username, telegram_chat_id)

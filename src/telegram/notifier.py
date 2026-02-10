@@ -10,11 +10,12 @@ logger = get_logger("telegram")
 
 class AlertType(Enum):
     """Types of alerts that can be sent."""
-    HTTP_ERROR = "http_error"           # 4xx, 5xx responses
-    TIMEOUT = "timeout"                  # Request timeout
-    CONNECTION_ERROR = "connection"      # Cannot connect to host
-    REQUEST_ERROR = "request"            # Other request failures
-    RECOVERY = "recovery"                # Site is back online
+
+    HTTP_ERROR = "http_error"  # 4xx, 5xx responses
+    TIMEOUT = "timeout"  # Request timeout
+    CONNECTION_ERROR = "connection"  # Cannot connect to host
+    REQUEST_ERROR = "request"  # Other request failures
+    RECOVERY = "recovery"  # Site is back online
 
 
 # HTTP status code error descriptions
@@ -49,7 +50,6 @@ HTTP_STATUS_ERRORS = {
     429: "Too Many Requests",
     431: "Request Header Fields Too Large",
     451: "Unavailable For Legal Reasons",
-    
     # Server errors (5xx)
     500: "Internal Server Error",
     501: "Not Implemented",
@@ -67,10 +67,8 @@ HTTP_STATUS_ERRORS = {
 
 def get_http_error_description(status_code: int) -> str:
     return HTTP_STATUS_ERRORS.get(
-        status_code, 
-        f"HTTP Error {status_code}" if status_code else "Unknown Error"
+        status_code, f"HTTP Error {status_code}" if status_code else "Unknown Error"
     )
-
 
 
 class TelegramNotifier:
@@ -99,7 +97,9 @@ class TelegramNotifier:
         if self._own_client and self._http_client:
             await self._http_client.aclose()
 
-    async def send_message(self, chat_id: int, text: str, parse_mode: str = "HTML") -> bool:
+    async def send_message(
+        self, chat_id: int, text: str, parse_mode: str = "HTML"
+    ) -> bool:
         client = await self._get_client()
 
         payload = {
@@ -170,11 +170,11 @@ def get_predefined_message(
     url: str,
     error: str | None = None,
     status_code: int | None = None,
-    duration_ms: int | None = None
+    duration_ms: int | None = None,
 ) -> str:
     """Get a pre-formatted message for quick notifications."""
     template = PREDEFINED_MESSAGES.get(alert_type, "⚠️ Monitoring issue {url}")
-    
+
     # Format duration nicely if provided
     duration_part = f"\n⏱ Response time: {duration_ms}ms" if duration_ms else ""
 
@@ -187,5 +187,5 @@ def get_predefined_message(
         url=url,
         status_code=status_code or "?",
         duration_part=duration_part,
-        error=error or "Unknown Error"
+        error=error or "Unknown Error",
     )

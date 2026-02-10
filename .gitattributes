@@ -1,0 +1,6 @@
+# Git attributes for version management
+# This prevents merge conflicts in version strings
+
+README.md merge=ours
+src/pyproject.toml merge=ours
+src/main.py merge=ours

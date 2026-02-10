@@ -46,11 +46,11 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["http_client"] = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0),
         limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-        follow_redirects=True, 
+        follow_redirects=True,
     )
 
     ctx["session_factory"] = async_session_factory
-    
+
     # reuses http_client
     ctx["notifier"] = TelegramNotifier(http_client=ctx["http_client"])
 
@@ -72,6 +72,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 # TASK: Send HTTP error alert (based on logs)
 # =============================================================================
 
+
 async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     session_factory = ctx["session_factory"]
     notifier: TelegramNotifier = ctx["notifier"]
@@ -92,7 +93,11 @@ async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[st
         monitor, user = row
 
         if not user.telegram_chat_id:
-            logger.info("http_alert_skipped_no_telegram", user=user.username, monitor_id=monitor_id)
+            logger.info(
+                "http_alert_skipped_no_telegram",
+                user=user.username,
+                monitor_id=monitor_id,
+            )
             return {"status": "skipped", "reason": "no_telegram"}
 
         log_query = (
@@ -142,11 +147,12 @@ async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[st
 # TASK: Send exception-based alert (no logs needed)
 # =============================================================================
 
+
 async def send_alert_exception(
     ctx: dict[str, Any],
     monitor_id: int,
     alert_type: str,
-    error_message: str | None = None
+    error_message: str | None = None,
 ) -> dict[str, Any]:
     session_factory = ctx["session_factory"]
     notifier: TelegramNotifier = ctx["notifier"]
@@ -168,13 +174,20 @@ async def send_alert_exception(
         row = result.first()
 
         if not row:
-            logger.warning("alert_monitor_not_found", monitor_id=monitor_id, alert_type=alert_type)
+            logger.warning(
+                "alert_monitor_not_found", monitor_id=monitor_id, alert_type=alert_type
+            )
             return {"status": "skipped", "reason": "not_found"}
 
         monitor, user = row
 
         if not user.telegram_chat_id:
-            logger.info("alert_skipped_no_telegram", user=user.username, monitor_id=monitor_id, alert_type=alert_type)
+            logger.info(
+                "alert_skipped_no_telegram",
+                user=user.username,
+                monitor_id=monitor_id,
+                alert_type=alert_type,
+            )
             return {"status": "skipped", "reason": "no_telegram"}
 
         # Get pre-formatted message
@@ -217,6 +230,7 @@ async def send_alert_exception(
 # TASK: Send recovery alert (transitions from ERROR to OK).
 # =============================================================================
 
+
 async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     session_factory = ctx["session_factory"]
     notifier: TelegramNotifier = ctx["notifier"]
@@ -237,7 +251,11 @@ async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str,
         monitor, user = row
 
         if not user.telegram_chat_id:
-            logger.info("recovery_alert_skipped_no_telegram", user=user.username, monitor_id=monitor_id)
+            logger.info(
+                "recovery_alert_skipped_no_telegram",
+                user=user.username,
+                monitor_id=monitor_id,
+            )
             return {"status": "skipped", "reason": "no_telegram"}
 
         message = get_predefined_message(
@@ -274,6 +292,7 @@ async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str,
 # TASK: Check single monitor
 # =============================================================================
 
+
 async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     http_client: httpx.AsyncClient = ctx["http_client"]
     session_factory = ctx["session_factory"]
@@ -282,7 +301,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     alert_type: str | None = None
 
     FAILURE_THRESHOLD = 2
-    
+
     async with session_factory() as session:
         query = select(Monitor).where(Monitor.id == monitor_id)
         result = await session.execute(query)
@@ -297,8 +316,13 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             return {"status": "skipped", "reason": "paused"}
 
         previous_status = monitor.last_check_status
-        
-        logger.debug("check_started", monitor_id=monitor_id, url=monitor.url, previous_status=previous_status)
+
+        logger.debug(
+            "check_started",
+            monitor_id=monitor_id,
+            url=monitor.url,
+            previous_status=previous_status,
+        )
 
         start_time = datetime.now(timezone.utc)
         status_code = None
@@ -310,7 +334,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             response = await http_client.request(
                 method=monitor.method,
                 url=monitor.url,
-                headers=monitor.headers, 
+                headers=monitor.headers,
             )
 
             status_code = response.status_code
@@ -324,12 +348,22 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
         except httpx.ConnectError as e:
             error_message = f"Connection error: {str(e)}"
             alert_type = "connection"
-            logger.warning("check_connection_error", monitor_id=monitor_id, url=monitor.url, error=str(e))
+            logger.warning(
+                "check_connection_error",
+                monitor_id=monitor_id,
+                url=monitor.url,
+                error=str(e),
+            )
 
         except httpx.RequestError as e:
             error_message = f"Request error: {str(e)}"
             alert_type = "request"
-            logger.error("check_request_error", monitor_id=monitor_id, url=monitor.url, error=str(e))
+            logger.error(
+                "check_request_error",
+                monitor_id=monitor_id,
+                url=monitor.url,
+                error=str(e),
+            )
 
         end_time = datetime.now(timezone.utc)
         duration_ms = int((end_time - start_time).total_seconds() * 1000)
@@ -344,7 +378,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
         )
         session.add(log_entry)
 
-        next_check = get_next_aligned_time(monitor.interval) # logs
+        next_check = get_next_aligned_time(monitor.interval)  # logs
 
         # Use update() instead of modifying the object
         # This is an atomic operation safer in case of concurrent access
@@ -372,7 +406,9 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                     "send_alert_recovery",
                     monitor_id,
                 )
-                logger.info("recovery_alert_queued", monitor_id=monitor_id, url=monitor.url)
+                logger.info(
+                    "recovery_alert_queued", monitor_id=monitor_id, url=monitor.url
+                )
 
         else:
             # Failure - increment counter
@@ -394,9 +430,8 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             # Only send alert if:
             # 1. Failure count >= threshold (anti-flapping)
             # 2. OR this is first failure after being OK (state transition OK -> ERROR)
-            should_alert = (
-                failure_count >= FAILURE_THRESHOLD or
-                (previous_status is True and failure_count == 1)
+            should_alert = failure_count >= FAILURE_THRESHOLD or (
+                previous_status is True and failure_count == 1
             )
 
             if should_alert:
@@ -459,34 +494,34 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
 
 
 # =============================================================================
-# CRON JOB: Scheduler 
+# CRON JOB: Scheduler
 # =============================================================================
+
 
 async def scheduler(ctx: dict[str, Any]) -> None:
     session_factory = ctx["session_factory"]
-    
+
     logger.debug("scheduler_started", timestamp=datetime.now(timezone.utc).isoformat())
-    
+
     async with session_factory() as session:
         # Get monitors that are due for checking
         now = datetime.now(timezone.utc)
-        
+
         query = (
             select(Monitor)
             .where(
-                Monitor.is_active == True,  # noqa: E712 
-                Monitor.next_check_at <= now
+                Monitor.is_active == True, Monitor.next_check_at <= now  # noqa: E712
             )
-            .limit(100) 
+            .limit(100)
         )
-        
+
         result = await session.execute(query)
         monitors = result.scalars().all()
-        
+
         if not monitors:
             logger.debug("scheduler_no_monitors_due")
             return
-        
+
         logger.info("scheduler_monitors_found", count=len(monitors))
 
         for monitor in monitors:
@@ -494,8 +529,13 @@ async def scheduler(ctx: dict[str, Any]) -> None:
 
             next_aligned_time = get_next_aligned_time(monitor.interval)
 
-            logger.debug("monitor_queued", monitor_id=monitor.id, name=monitor.name, url=monitor.url)
-            
+            logger.debug(
+                "monitor_queued",
+                monitor_id=monitor.id,
+                name=monitor.name,
+                url=monitor.url,
+            )
+
             # Update next_check_at immediately to avoid duplicates.
             # Even if the task fails, the next scheduler will create it again.
             await session.execute(
@@ -503,7 +543,7 @@ async def scheduler(ctx: dict[str, Any]) -> None:
                 .where(Monitor.id == monitor.id)
                 .values(next_check_at=next_aligned_time)
             )
-        
+
         await session.commit()
         logger.debug("scheduler_completed", queued_count=len(monitors))
 
@@ -512,11 +552,12 @@ async def scheduler(ctx: dict[str, Any]) -> None:
 # ARQ WORKER SETTINGS
 # =============================================================================
 
+
 class WorkerSettings:
     """
     Main ARQ worker configuration.
     ARQ reads this class at startup: arq src.worker.main.WorkerSettings
-    
+
     CRON SYNTAX:
     cron(func, second=0)        — every minute at 0 seconds
     cron(func, minute=0)        — every hour at 0 minutes
@@ -533,16 +574,16 @@ class WorkerSettings:
     cron_jobs = [
         cron(
             scheduler,
-            second={0}, 
+            second={0},
             unique=True,  # Do not start a new one until the old one is finished
         )
     ]
-    
+
     # Lifecycle hooks
     on_startup = startup
     on_shutdown = shutdown
 
-    max_jobs = 20  
-    job_timeout = 60  
+    max_jobs = 20
+    job_timeout = 60
 
     max_tries = 3

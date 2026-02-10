@@ -7,7 +7,6 @@ from typing import Literal
 import structlog
 from structlog.typing import Processor
 
-
 ServiceType = Literal["api", "worker", "telegram", "service"]
 
 
@@ -28,7 +27,8 @@ def configure_logging(
     ]
 
     structlog.configure(
-        processors=shared_processors + [
+        processors=shared_processors
+        + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
@@ -60,7 +60,7 @@ def configure_logging(
     if enable_file_logging:
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
-        
+
         json_formatter = structlog.stdlib.ProcessorFormatter(
             foreign_pre_chain=shared_processors,
             processors=[
@@ -86,9 +86,15 @@ def configure_logging(
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("aiogram").setLevel(logging.WARNING)
     logging.getLogger("arq").setLevel(logging.INFO)
-    logging.getLogger("watchfiles.main").setLevel(logging.WARNING)  # Silence "rust notify timeout"
-    logging.getLogger("asyncio").setLevel(logging.WARNING)  # Silence selector debug messages
-    logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)  # Silence SQL queries
+    logging.getLogger("watchfiles.main").setLevel(
+        logging.WARNING
+    )  # Silence "rust notify timeout"
+    logging.getLogger("asyncio").setLevel(
+        logging.WARNING
+    )  # Silence selector debug messages
+    logging.getLogger("sqlalchemy.engine.Engine").setLevel(
+        logging.WARNING
+    )  # Silence SQL queries
 
 
 def get_logger(service: ServiceType, **initial_context) -> structlog.stdlib.BoundLogger:

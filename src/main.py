@@ -5,7 +5,8 @@ from fastapi import FastAPI
 from src.config.settings import settings
 from src.core.logging import configure_logging, get_logger
 from src.routes import users, monitors
-# from src.utils.version import __version__ 
+
+# from src.utils.version import __version__
 
 configure_logging(
     service="api",
@@ -36,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Watchdog HTTP Monitoring Service",
-    version="1.5.0",
+    version="1.5.6",
     description="""
     Watchdog is an autonomous, asynchronous web monitoring system. 
     It performs background health checks on target APIs and websites, 

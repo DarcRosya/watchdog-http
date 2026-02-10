@@ -10,7 +10,7 @@ st.set_page_config(
     page_title="Watchdog Monitoring",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 API_BASE_URL = "http://app:8000/api/v1"
@@ -26,10 +26,7 @@ class WatchdogAPI:
     def get_monitors(self):
         """Fetch all monitors"""
         with httpx.Client(timeout=API_TIMEOUT) as client:
-            response = client.get(
-                f"{self.base_url}/monitors/",
-                headers=self.headers
-            )
+            response = client.get(f"{self.base_url}/monitors/", headers=self.headers)
             response.raise_for_status()
             return response.json()
 
@@ -39,7 +36,7 @@ class WatchdogAPI:
             response = client.get(
                 f"{self.base_url}/monitors/{monitor_id}/stats",
                 params={"hours": hours},
-                headers=self.headers
+                headers=self.headers,
             )
             response.raise_for_status()
             return response.json()
@@ -53,14 +50,14 @@ def render_sidebar():
         api_key = st.text_input(
             "API Key",
             type="password",
-            help="Enter your API key to access monitoring data"
+            help="Enter your API key to access monitoring data",
         )
 
         time_range = st.selectbox(
             "Time Range",
             options=[1, 6, 12, 24, 48, 72, 168],
             index=3,
-            format_func=lambda x: f"Last {x} hours"
+            format_func=lambda x: f"Last {x} hours",
         )
 
         if st.button("🔄 Refresh Data", use_container_width=True):
@@ -71,7 +68,7 @@ def render_sidebar():
         st.markdown("### 🔗 Quick Links")
         st.markdown("[📚 API Swagger Docs](/docs)")
         st.markdown("[🔄 API ReDoc](/redoc)")
-        
+
         st.markdown("---")
         st.caption("v1.1.2 | Powered by FastAPI + Streamlit")
 
@@ -99,7 +96,7 @@ def render_monitor_card(monitor: dict):
 
         with col1:
             st.markdown(f"### {status_icon} {monitor.get('name', 'Unnamed')}")
-            st.caption(monitor.get('url', 'No URL'))
+            st.caption(monitor.get("url", "No URL"))
 
         with col2:
             st.metric("Status", status_text)
@@ -114,36 +111,40 @@ def render_latency_chart(data: list):
         return
 
     df = pd.DataFrame(data)
-    df['start_time'] = pd.to_datetime(df['start_time'])
-    
+    df["start_time"] = pd.to_datetime(df["start_time"])
+
     fig = go.Figure()
 
-    success_df = df[df['is_success'] == True]
-    fig.add_trace(go.Scatter(
-        x=success_df['start_time'],
-        y=success_df['duration_ms'],
-        mode='lines+markers',
-        name='Latency (success)',
-        line=dict(color='green', width=2),
-        marker=dict(size=6)
-    ))
+    success_df = df[df["is_success"] == True]
+    fig.add_trace(
+        go.Scatter(
+            x=success_df["start_time"],
+            y=success_df["duration_ms"],
+            mode="lines+markers",
+            name="Latency (success)",
+            line=dict(color="green", width=2),
+            marker=dict(size=6),
+        )
+    )
 
-    failed_df = df[df['is_success'] == False]
+    failed_df = df[df["is_success"] == False]
     if not failed_df.empty:
-        fig.add_trace(go.Scatter(
-            x=failed_df['start_time'],
-            y=failed_df['duration_ms'],
-            mode='markers',
-            name='Failed checks',
-            marker=dict(color='red', size=10, symbol='x')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=failed_df["start_time"],
+                y=failed_df["duration_ms"],
+                mode="markers",
+                name="Failed checks",
+                marker=dict(color="red", size=10, symbol="x"),
+            )
+        )
 
     fig.update_layout(
         title="Response Time Timeline",
         xaxis_title="Time",
         yaxis_title="Latency (ms)",
-        hovermode='x unified',
-        height=400
+        hovermode="x unified",
+        height=400,
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -156,8 +157,10 @@ def render_uptime_stats(data: list):
 
     df = pd.DataFrame(data)
     total_checks = len(df)
-    successful_checks = df['is_success'].sum()
-    uptime_percentage = (successful_checks / total_checks * 100) if total_checks > 0 else 0
+    successful_checks = df["is_success"].sum()
+    uptime_percentage = (
+        (successful_checks / total_checks * 100) if total_checks > 0 else 0
+    )
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -168,8 +171,10 @@ def render_uptime_stats(data: list):
         st.metric("Total Checks", total_checks)
 
     with col3:
-        avg_latency = df[df['is_success']]['duration_ms'].mean()
-        st.metric("Avg Latency", f"{avg_latency:.0f}ms" if pd.notna(avg_latency) else "N/A")
+        avg_latency = df[df["is_success"]]["duration_ms"].mean()
+        st.metric(
+            "Avg Latency", f"{avg_latency:.0f}ms" if pd.notna(avg_latency) else "N/A"
+        )
 
     with col4:
         failed_checks = total_checks - successful_checks
@@ -180,10 +185,14 @@ def main():
     api_key, time_range = render_sidebar()
 
     st.title("📊 Monitoring Dashboard")
-    st.caption("Real-time visualization of your monitors. Manage monitors via [Swagger UI](/docs)")
+    st.caption(
+        "Real-time visualization of your monitors. Manage monitors via [Swagger UI](/docs)"
+    )
 
     if not api_key:
-        st.warning("⚠️ Please enter your API key in the sidebar to access monitoring data")
+        st.warning(
+            "⚠️ Please enter your API key in the sidebar to access monitoring data"
+        )
         st.info("""
         **How to get your API key:**
         1. Open [API Swagger](/docs)
@@ -200,25 +209,27 @@ def main():
 
         if not monitors:
             st.info("📭 No monitors configured yet.")
-            st.markdown("**Add monitors via [Swagger API](/docs)** - navigate to `/monitors/add-urls` endpoint")
+            st.markdown(
+                "**Add monitors via [Swagger API](/docs)** - navigate to `/monitors/add-urls` endpoint"
+            )
             return
 
         st.subheader(f"Active Monitors ({len(monitors)})")
 
         for monitor in monitors:
             try:
-                monitor_name = str(monitor.get('name', 'Unnamed'))
-                monitor_url = str(monitor.get('url', 'No URL'))
+                monitor_name = str(monitor.get("name", "Unnamed"))
+                monitor_url = str(monitor.get("url", "No URL"))
                 expander_label = f"{monitor_name} - {monitor_url}"
             except (UnicodeEncodeError, UnicodeDecodeError):
                 expander_label = f"Monitor ID: {monitor.get('id', 'Unknown')}"
-            
+
             with st.expander(expander_label, expanded=False):
                 render_monitor_card(monitor)
 
                 try:
                     with st.spinner(f"Loading stats..."):
-                        stats = api.get_monitor_stats(monitor['id'], hours=time_range)
+                        stats = api.get_monitor_stats(monitor["id"], hours=time_range)
 
                     st.markdown("#### Statistics")
                     render_uptime_stats(stats)
@@ -230,7 +241,7 @@ def main():
                     st.warning(f"⚠️ Could not load statistics: {str(e)}")
                 except Exception as e:
                     st.error(f"❌ Error loading stats: {str(e)}")
-        
+
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 401:
             st.error("❌ Invalid API key. Please check your credentials.")

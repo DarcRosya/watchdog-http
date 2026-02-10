@@ -4,22 +4,22 @@ from pydantic import BaseModel, HttpUrl, Field, field_validator
 
 
 class MonitorCreate(BaseModel):
-    url: HttpUrl 
+    url: HttpUrl
     name: Optional[str] = None
-    
+
     # ge=60 — greater or equal 60
     interval: int = Field(
-        default=60, 
+        default=60,
         ge=60,
         description="Check interval in seconds. Minimum 60, multiples of 60.",
-        examples=[60, 120, 300, 600]
+        examples=[60, 120, 300, 600],
     )
     method: str = Field(
         default="GET",
         description="HTTP request method",
-        examples=["GET", "POST", "HEAD"]
+        examples=["GET", "POST", "HEAD"],
     )
-    
+
     @field_validator("interval")
     @classmethod
     def interval_must_be_multiple_of_60(cls, v: int) -> int:

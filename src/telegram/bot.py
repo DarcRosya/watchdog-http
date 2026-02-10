@@ -21,6 +21,8 @@ router = Router()
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
     """Handle /start command."""
+    if not message.from_user:
+        return
     logger.info(
         "command_received",
         command="start",
@@ -38,6 +40,8 @@ async def cmd_start(message: Message) -> None:
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     """Handle /help command."""
+    if not message.from_user:
+        return
     logger.info(
         "command_received",
         command="help",
@@ -59,6 +63,8 @@ async def cmd_help(message: Message) -> None:
 @router.message(Command("status"))
 async def cmd_status(message: Message) -> None:
     """Check if user's Telegram is linked to an account."""
+    if not message.from_user:
+        return
     telegram_id = message.from_user.id
     logger.info(
         "command_received",
@@ -90,6 +96,8 @@ async def verify_username(message: Message) -> None:
     Verify username and link Telegram account.
     User sends their username, bot checks DB and links telegram_chat_id.
     """
+    if not message.text or not message.from_user:
+        return
     username = message.text.strip()
     telegram_id = message.from_user.id
 
@@ -141,9 +149,7 @@ async def verify_username(message: Message) -> None:
             return
 
         await session.execute(
-            update(User)
-            .where(User.id == user.id)
-            .values(telegram_chat_id=telegram_id)
+            update(User).where(User.id == user.id).values(telegram_chat_id=telegram_id)
         )
         await session.commit()
 
@@ -171,7 +177,7 @@ async def main() -> None:
         json_logs=not settings.debug_mode,
         log_level="DEBUG" if settings.debug_mode else "INFO",
     )
-    
+
     bot = Bot(token=settings.telegram.token)
     dp = Dispatcher()
     dp.include_router(router)
@@ -183,4 +189,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

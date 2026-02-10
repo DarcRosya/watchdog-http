@@ -10,23 +10,22 @@ from src.core.db_types import intpk, aware_datetime
 if TYPE_CHECKING:
     from .user import User
 
+
 class Monitor(Base):
     __tablename__ = "monitors"
-    __table_args__ = (
-        Index("scheduler_index", "is_active", "next_check_at"),
-    )
+    __table_args__ = (Index("scheduler_index", "is_active", "next_check_at"),)
 
     id: Mapped[intpk]
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    
+
     name: Mapped[str] = mapped_column(String(50), nullable=True)
-    url: Mapped[str] = mapped_column(Text, nullable=False)  
+    url: Mapped[str] = mapped_column(Text, nullable=False)
 
     method: Mapped[str] = mapped_column(String(10), default="GET")
     headers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=True)
 
-    interval: Mapped[int] = mapped_column(nullable=False, default=60) # in seconds 
+    interval: Mapped[int] = mapped_column(nullable=False, default=60)  # in seconds
     is_active: Mapped[bool] = mapped_column(default=True)
 
     next_check_at: Mapped[aware_datetime]

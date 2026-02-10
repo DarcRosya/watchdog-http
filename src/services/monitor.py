@@ -20,13 +20,11 @@ class MonitorService:
         self.session = session
 
     async def _check_single_url(
-        self, 
-        client: httpx.AsyncClient, 
-        url: str
+        self, client: httpx.AsyncClient, url: str
     ) -> Tuple[str, bool, str | None]:
         try:
             response = await client.get(url, timeout=5.0)
-            is_alive = True 
+            is_alive = True
             error = None
             # 4xx and 5xx codes are errors, but the site is technically responding
             # For monitoring purposes, we consider this a “problem"
@@ -35,7 +33,7 @@ class MonitorService:
         except httpx.RequestError as e:
             is_alive = False
             error = str(e)
-        
+
         return url, is_alive, error
 
     async def get_all_by_user(self, user_id: int) -> List[Monitor]:
@@ -47,16 +45,13 @@ class MonitorService:
     async def get_by_id(self, monitor_id: int, user_id: int) -> Monitor | None:
         """Get a specific monitor by ID for a user."""
         query = select(Monitor).where(
-            Monitor.id == monitor_id,
-            Monitor.user_id == user_id
+            Monitor.id == monitor_id, Monitor.user_id == user_id
         )
         result = await self.session.execute(query)
         return result.scalars().first()
 
     async def bulk_create_monitors(
-        self, 
-        monitors_data: List[MonitorCreate], 
-        user_id: int
+        self, monitors_data: List[MonitorCreate], user_id: int
     ) -> List[Monitor]:
         """Create multiple monitors with initial URL validation."""
         # One client for all requests
@@ -65,13 +60,13 @@ class MonitorService:
             for data in monitors_data:
                 # Preparing coroutines for parallel execution
                 tasks.append(self._check_single_url(client, str(data.url)))
-            
+
             # gather() runs all coroutines “simultaneously”
             # Returns results in the same order
             results = await asyncio.gather(*tasks)
 
         new_monitors = []
-        
+
         for data, (url, is_alive, error) in zip(monitors_data, results):
             if not is_alive:
                 logger.warning("monitor_url_unavailable", url=url, error=error)
@@ -79,7 +74,7 @@ class MonitorService:
                 logger.info("monitor_url_checked", url=url, is_alive=True)
 
             next_aligned_time = get_next_aligned_time(data.interval)
-            
+
             monitor = Monitor(
                 user_id=user_id,
                 url=str(data.url),
@@ -94,47 +89,51 @@ class MonitorService:
 
         self.session.add_all(new_monitors)
         await self.session.commit()
-        
+
         # refresh() is needed to obtain the generated fields (id)
         for m in new_monitors:
             await self.session.refresh(m)
-            
+
         return new_monitors
 
     async def start_all(self, user_id: int, username: str) -> MonitoringStatus:
         """Activate all monitors for a user."""
-        query = (
-            update(Monitor)
-            .where(Monitor.user_id == user_id)
-            .values(is_active=True)
-        )
+        query = update(Monitor).where(Monitor.user_id == user_id).values(is_active=True)
         result = await self.session.execute(query)
         await self.session.commit()
-        
-        logger.info("monitoring_started", user=username, user_id=user_id, affected_count=result.rowcount)
-        
+
+        logger.info(
+            "monitoring_started",
+            user=username,
+            user_id=user_id,
+            affected_count=result.rowcount,
+        )
+
         return MonitoringStatus(
             status="started",
             message=f"Activated {result.rowcount} monitor(s)",
-            affected_count=result.rowcount
+            affected_count=result.rowcount,
         )
 
     async def stop_all(self, user_id: int, username: str) -> MonitoringStatus:
         """Deactivate all monitors for a user."""
         query = (
-            update(Monitor)
-            .where(Monitor.user_id == user_id)
-            .values(is_active=False)
+            update(Monitor).where(Monitor.user_id == user_id).values(is_active=False)
         )
         result = await self.session.execute(query)
         await self.session.commit()
-        
-        logger.info("monitoring_stopped", user=username, user_id=user_id, affected_count=result.rowcount)
-        
+
+        logger.info(
+            "monitoring_stopped",
+            user=username,
+            user_id=user_id,
+            affected_count=result.rowcount,
+        )
+
         return MonitoringStatus(
             status="stopped",
             message=f"Deactivated {result.rowcount} monitor(s)",
-            affected_count=result.rowcount
+            affected_count=result.rowcount,
         )
 
     async def toggle(self, monitor: Monitor) -> Monitor:
@@ -142,10 +141,12 @@ class MonitorService:
         monitor.is_active = not monitor.is_active
         await self.session.commit()
         await self.session.refresh(monitor)
-        
+
         state = "activated" if monitor.is_active else "deactivated"
-        logger.info("monitor_toggled", monitor_id=monitor.id, url=monitor.url, state=state)
-        
+        logger.info(
+            "monitor_toggled", monitor_id=monitor.id, url=monitor.url, state=state
+        )
+
         return monitor
 
     async def delete(self, monitor: Monitor) -> None:
@@ -155,10 +156,7 @@ class MonitorService:
         await self.session.commit()
 
     async def get_statistics(
-        self, 
-        monitor_id: int, 
-        user_id: int, 
-        hours: int = 24
+        self, monitor_id: int, user_id: int, hours: int = 24
     ) -> List[dict]:
         monitor = await self.get_by_id(monitor_id, user_id)
         if not monitor:
@@ -172,7 +170,7 @@ class MonitorService:
             .where(
                 ResultLog.monitor_id == monitor_id,
                 ResultLog.start_time >= start_time,
-                ResultLog.start_time <= end_time
+                ResultLog.start_time <= end_time,
             )
             .order_by(ResultLog.start_time.asc())
         )
@@ -186,7 +184,7 @@ class MonitorService:
                 "duration_ms": log.duration_ms,
                 "status_code": log.status_code,
                 "is_success": log.is_success,
-                "error_message": log.error_message
+                "error_message": log.error_message,
             }
             for log in logs
         ]

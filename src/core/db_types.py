@@ -9,6 +9,5 @@ intpk = Annotated[int, mapped_column(primary_key=True)]
 
 # Alias - aware date.
 aware_datetime = Annotated[
-    datetime,
-    mapped_column(DateTime(timezone=True), nullable=False)
+    datetime, mapped_column(DateTime(timezone=True), nullable=False)
 ]

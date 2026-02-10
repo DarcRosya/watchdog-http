@@ -8,15 +8,16 @@ from src.config.settings import settings
 
 engine = create_async_engine(
     url=settings.db.DATABASE_URL,
-    echo=settings.debug_mode, 
+    echo=settings.debug_mode,
     pool_size=10,
     max_overflow=20,
     pool_timeout=10,
     pool_recycle=1800,
-    pool_pre_ping=True
+    pool_pre_ping=True,
 )
 
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
 
 # Base class for all our ORM models
 # SQLAlchemy uses it to collect metadata about tables
