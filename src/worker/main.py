@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import json
 
 import httpx
 from arq import cron
@@ -54,7 +55,8 @@ async def hydrate_cache(ctx: dict[str, Any]):
         )
 
         query = (
-            select(Monitor, ResultLog)
+            select(Monitor, User, ResultLog)
+            .join(User, Monitor.user_id == User.id)
             .outerjoin(
                 latest_log_subquery,
                 Monitor.id == latest_log_subquery.c.monitor_id,
@@ -77,7 +79,7 @@ async def hydrate_cache(ctx: dict[str, Any]):
         logger.info("hydrate_cache_loading", count=len(rows))
 
         async with redis.pipeline() as pipe:
-            for monitor, last_log in rows:
+            for monitor, user, last_log in rows:
                 # Store interval
                 pipe.set(f"monitor:{monitor.id}:interval", monitor.interval)
 
@@ -90,8 +92,9 @@ async def hydrate_cache(ctx: dict[str, Any]):
                     "is_active": monitor.is_active,
                     "name": monitor.name,
                     "user_id": monitor.user_id,
+                    "username": user.username,
+                    "telegram_chat_id": user.telegram_chat_id,
                 }
-                import json
 
                 pipe.setex(f"monitor:{monitor.id}:config", 86400, json.dumps(config))
 
@@ -161,31 +164,28 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     session_factory = ctx["session_factory"]
+    redis = ctx["redis"]
     notifier: TelegramNotifier = ctx["notifier"]
 
-    async with session_factory() as session:
-        query = (
-            select(Monitor, User)
-            .join(User, Monitor.user_id == User.id)
-            .where(Monitor.id == monitor_id)
+    config_key = f"monitor:{monitor_id}:config"
+    config_raw = await redis.get(config_key)
+
+    if not config_raw:
+        logger.warning("http_alert_monitor_not_found", monitor_id=monitor_id)
+        return {"status": "skipped", "reason": "not_found"}
+
+    config = json.loads(config_raw)
+
+    if not config["telegram_chat_id"]:
+        logger.info(
+            "http_alert_skipped_no_telegram",
+            user=config["username"],
+            monitor_id=monitor_id,
         )
-        result = await session.execute(query)
-        row = result.first()
+        return {"status": "skipped", "reason": "no_telegram"}
 
-        if not row:
-            logger.warning("http_alert_monitor_not_found", monitor_id=monitor_id)
-            return {"status": "skipped", "reason": "not_found"}
-
-        monitor, user = row
-
-        if not user.telegram_chat_id:
-            logger.info(
-                "http_alert_skipped_no_telegram",
-                user=user.username,
-                monitor_id=monitor_id,
-            )
-            return {"status": "skipped", "reason": "no_telegram"}
-
+    # Need to fetch last log from DB for status_code and duration_ms
+    async with session_factory() as session:
         log_query = (
             select(ResultLog)
             .where(ResultLog.monitor_id == monitor_id)
@@ -195,38 +195,38 @@ async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[st
         log_result = await session.execute(log_query)
         last_log = log_result.scalars().first()
 
-        message = get_predefined_message(
-            alert_type=AlertType.HTTP_ERROR,
-            monitor_name=monitor.name or "",
-            url=monitor.url,
-            status_code=last_log.status_code if last_log else None,
-            duration_ms=last_log.duration_ms if last_log else None,
+    message = get_predefined_message(
+        alert_type=AlertType.HTTP_ERROR,
+        monitor_name=config["name"] or "",
+        url=config["url"],
+        status_code=last_log.status_code if last_log else None,
+        duration_ms=last_log.duration_ms if last_log else None,
+    )
+
+    success = await notifier.send_alert(config["telegram_chat_id"], message)
+
+    if success:
+        logger.info(
+            "alert_sent",
+            alert_type="http_error",
+            user=config["username"],
+            monitor_id=monitor_id,
+            monitor_name=config["name"],
+            url=config["url"],
+        )
+    else:
+        logger.error(
+            "alert_failed",
+            alert_type="http_error",
+            user=config["username"],
+            monitor_id=monitor_id,
         )
 
-        success = await notifier.send_alert(user.telegram_chat_id, message)
-
-        if success:
-            logger.info(
-                "alert_sent",
-                alert_type="http_error",
-                user=user.username,
-                monitor_id=monitor_id,
-                monitor_name=monitor.name,
-                url=monitor.url,
-            )
-        else:
-            logger.error(
-                "alert_failed",
-                alert_type="http_error",
-                user=user.username,
-                monitor_id=monitor_id,
-            )
-
-        return {
-            "status": "sent" if success else "failed",
-            "monitor_id": monitor_id,
-            "user": user.username,
-        }
+    return {
+        "status": "sent" if success else "failed",
+        "monitor_id": monitor_id,
+        "user": config["username"],
+    }
 
 
 # =============================================================================
@@ -240,7 +240,7 @@ async def send_alert_exception(
     alert_type: str,
     error_message: str | None = None,
 ) -> dict[str, Any]:
-    session_factory = ctx["session_factory"]
+    redis = ctx["redis"]
     notifier: TelegramNotifier = ctx["notifier"]
 
     alert_type_map = {
@@ -250,66 +250,59 @@ async def send_alert_exception(
     }
     alert_enum = alert_type_map.get(alert_type, AlertType.REQUEST_ERROR)
 
-    async with session_factory() as session:
-        query = (
-            select(Monitor, User)
-            .join(User, Monitor.user_id == User.id)
-            .where(Monitor.id == monitor_id)
+    config_key = f"monitor:{monitor_id}:config"
+    config_raw = await redis.get(config_key)
+
+    if not config_raw:
+        logger.warning(
+            "alert_monitor_not_found", monitor_id=monitor_id, alert_type=alert_type
         )
-        result = await session.execute(query)
-        row = result.first()
+        return {"status": "skipped", "reason": "not_found"}
 
-        if not row:
-            logger.warning(
-                "alert_monitor_not_found", monitor_id=monitor_id, alert_type=alert_type
-            )
-            return {"status": "skipped", "reason": "not_found"}
+    config = json.loads(config_raw)
 
-        monitor, user = row
+    if not config["telegram_chat_id"]:
+        logger.info(
+            "alert_skipped_no_telegram",
+            user=config["username"],
+            monitor_id=monitor_id,
+            alert_type=alert_type,
+        )
+        return {"status": "skipped", "reason": "no_telegram"}
 
-        if not user.telegram_chat_id:
-            logger.info(
-                "alert_skipped_no_telegram",
-                user=user.username,
-                monitor_id=monitor_id,
-                alert_type=alert_type,
-            )
-            return {"status": "skipped", "reason": "no_telegram"}
+    message = get_predefined_message(
+        alert_type=alert_enum,
+        monitor_name=config["name"] or "",
+        url=config["url"],
+        error=error_message,
+    )
 
-        # Get pre-formatted message
-        message = get_predefined_message(
-            alert_type=alert_enum,
-            monitor_name=monitor.name or "",
-            url=monitor.url,
+    success = await notifier.send_message(config["telegram_chat_id"], message)
+
+    if success:
+        logger.info(
+            "alert_sent",
+            alert_type=alert_type,
+            user=config["username"],
+            monitor_id=monitor_id,
+            monitor_name=config["name"],
+            url=config["url"],
             error=error_message,
         )
+    else:
+        logger.error(
+            "alert_failed",
+            alert_type=alert_type,
+            user=config["username"],
+            monitor_id=monitor_id,
+        )
 
-        success = await notifier.send_message(user.telegram_chat_id, message)
-
-        if success:
-            logger.info(
-                "alert_sent",
-                alert_type=alert_type,
-                user=user.username,
-                monitor_id=monitor_id,
-                monitor_name=monitor.name,
-                url=monitor.url,
-                error=error_message,
-            )
-        else:
-            logger.error(
-                "alert_failed",
-                alert_type=alert_type,
-                user=user.username,
-                monitor_id=monitor_id,
-            )
-
-        return {
-            "status": "sent" if success else "failed",
-            "monitor_id": monitor_id,
-            "alert_type": alert_type,
-            "user": user.username,
-        }
+    return {
+        "status": "sent" if success else "failed",
+        "monitor_id": monitor_id,
+        "alert_type": alert_type,
+        "user": config["username"],
+    }
 
 
 # =============================================================================
@@ -318,60 +311,54 @@ async def send_alert_exception(
 
 
 async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
-    session_factory = ctx["session_factory"]
+    redis = ctx["redis"]
     notifier: TelegramNotifier = ctx["notifier"]
 
-    async with session_factory() as session:
-        query = (
-            select(Monitor, User)
-            .join(User, Monitor.user_id == User.id)
-            .where(Monitor.id == monitor_id)
+    config_key = f"monitor:{monitor_id}:config"
+    config_raw = await redis.get(config_key)
+
+    if not config_raw:
+        logger.warning("recovery_alert_monitor_not_found", monitor_id=monitor_id)
+        return {"status": "skipped", "reason": "not_found"}
+
+    config = json.loads(config_raw)
+
+    if not config["telegram_chat_id"]:
+        logger.info(
+            "recovery_alert_skipped_no_telegram",
+            user=config["username"],
+            monitor_id=monitor_id,
         )
-        result = await session.execute(query)
-        row = result.first()
+        return {"status": "skipped", "reason": "no_telegram"}
 
-        if not row:
-            logger.warning("recovery_alert_monitor_not_found", monitor_id=monitor_id)
-            return {"status": "skipped", "reason": "not_found"}
+    message = get_predefined_message(
+        alert_type=AlertType.RECOVERY,
+        monitor_name=config["name"] or "",
+        url=config["url"],
+    )
 
-        monitor, user = row
+    success = await notifier.send_message(config["telegram_chat_id"], message)
 
-        if not user.telegram_chat_id:
-            logger.info(
-                "recovery_alert_skipped_no_telegram",
-                user=user.username,
-                monitor_id=monitor_id,
-            )
-            return {"status": "skipped", "reason": "no_telegram"}
-
-        message = get_predefined_message(
-            alert_type=AlertType.RECOVERY,
-            monitor_name=monitor.name or "",
-            url=monitor.url,
+    if success:
+        logger.info(
+            "recovery_alert_sent",
+            user=config["username"],
+            monitor_id=monitor_id,
+            monitor_name=config["name"],
+            url=config["url"],
+        )
+    else:
+        logger.error(
+            "recovery_alert_failed",
+            user=config["username"],
+            monitor_id=monitor_id,
         )
 
-        success = await notifier.send_message(user.telegram_chat_id, message)
-
-        if success:
-            logger.info(
-                "recovery_alert_sent",
-                user=user.username,
-                monitor_id=monitor_id,
-                monitor_name=monitor.name,
-                url=monitor.url,
-            )
-        else:
-            logger.error(
-                "recovery_alert_failed",
-                user=user.username,
-                monitor_id=monitor_id,
-            )
-
-        return {
-            "status": "sent" if success else "failed",
-            "monitor_id": monitor_id,
-            "user": user.username,
-        }
+    return {
+        "status": "sent" if success else "failed",
+        "monitor_id": monitor_id,
+        "user": config["username"],
+    }
 
 
 # =============================================================================
@@ -388,13 +375,10 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
 
     FAILURE_THRESHOLD = 2
 
-    # Try loading config from Redis first (avoids DB hit)
     config_key = f"monitor:{monitor_id}:config"
     config_raw = await redis.get(config_key)
 
     if config_raw:
-        import json
-
         config = json.loads(config_raw)
 
         if not config.get("is_active", True):
@@ -411,6 +395,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
         # Fallback to DB if config not in Redis (shouldn't happen normally)
         async with session_factory() as session:
             monitor = await session.get(Monitor, monitor_id)
+
             if not monitor:
                 logger.warning("monitor_not_found", monitor_id=monitor_id)
                 return {"status": "skipped", "reason": "not_found"}
@@ -520,7 +505,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             # Check if this is a real recovery (last check was recent)
             # vs restored state from old DB logs (after worker restart)
             should_send_recovery = True
-            
+
             if old_timestamp_raw is None:
                 # No previous timestamp = first check after worker startup
                 # This is a restored state from DB, not a real recovery
@@ -546,7 +531,6 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                     )
 
             if should_send_recovery:
-                # Monitor recovered! Send recovery notification
                 await redis.enqueue_job(
                     "send_alert_recovery",
                     monitor_id,
@@ -623,7 +607,6 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                 reason="anti_flapping",
             )
 
-    # Get next scheduled check from Redis
     next_run_score = await redis.zscore("scheduler", str(monitor_id))
     next_check_iso = None
     if next_run_score:
