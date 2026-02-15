@@ -2,15 +2,20 @@ services:
   database:
     image: timescale/timescaledb:latest-pg14
     container_name: watchdog_db
-    restart: always
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB__USER}
       POSTGRES_PASSWORD: ${DB__PASS}
       POSTGRES_DB: ${DB__NAME}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB__USER} -d ${DB__NAME}"]
       interval: 5s
@@ -20,15 +25,16 @@ services:
   redis:
     image: redis:7-alpine
     container_name: watchdog_redis
-    restart: always
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     volumes:
       - redis_data:/data
     deploy:
       resources:
         limits:
-          memory: 512M
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          memory: 32M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -39,7 +45,7 @@ services:
     build: ./src
     container_name: watchdog_app
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-    restart: always
+    restart: unless-stopped
     expose:
       - "8000"
     env_file:
@@ -59,16 +65,17 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
-        reservations:
+          cpus: '0.5'
           memory: 256M
+        reservations:
+          memory: 128M
 
-  worker:
+  monitoring-worker:
     build: ./src
-    container_name: watchdog_worker
+    container_name: watchdog_monitoring_worker
     # --watch src for development
-    command: arq src.worker.main.WorkerSettings --watch src
-    restart: always
+    command: arq src.worker.monitoring.MonitoringWorkerSettings --watch src
+    restart: unless-stopped
     env_file:
       - .env
     environment:
@@ -82,12 +89,46 @@ services:
     volumes:
       - ./src:/app/src  
       - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
+        reservations:
+          memory: 128M
+
+  alerting-worker:
+    build: ./src
+    container_name: watchdog_alerting_worker
+    # --watch src for development
+    command: arq src.worker.alerting.AlertingWorkerSettings --watch src
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB__HOST: database
+      REDIS__R_HOST: redis
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src  
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          memory: 64M
 
   telegram-bot:
     build: ./src
     container_name: watchdog_telegram
     command: python -m src.telegram.bot
-    restart: always
+    restart: unless-stopped
     env_file:
       - .env
     environment:
@@ -98,11 +139,18 @@ services:
         condition: service_healthy
     volumes:
       - ./src:/app/src
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          memory: 32M
 
   ui:
     build: ./ui
     container_name: watchdog_ui
-    restart: always
+    restart: unless-stopped
     expose:
       - "8501"
     depends_on:
@@ -110,17 +158,27 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          memory: 64M
 
   nginx:
     build: ./nginx
     container_name: watchdog_nginx
-    restart: always
+    restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
       - app
       - ui
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
+        reservations:
+          memory: 16M
 
 volumes:
   postgres_data:

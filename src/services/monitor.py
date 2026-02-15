@@ -11,7 +11,7 @@ from src.core.logging import get_logger
 from src.models.monitor import Monitor
 from src.models.resultlog import ResultLog
 from src.schemas.monitor import MonitorCreate, MonitoringStatus
-from src.worker.main import get_next_aligned_time
+from src.utils.time import get_next_aligned_time
 
 logger = get_logger("service")
 

@@ -25,9 +25,19 @@ dev: ## Run development server with auto-reload
 	@printf "$(BLUE)Starting development server...$(NC)\n"
 	cd src && poetry run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-worker: ## Run ARQ worker for background tasks
-	@printf "$(BLUE)Starting ARQ worker...$(NC)\n"
-	cd src && poetry run arq src.worker.main.WorkerSettings
+worker-monitoring: ## Run monitoring worker (check monitors + scheduler)
+	@printf "$(BLUE)Starting monitoring worker...$(NC)\n"
+	cd src && poetry run arq src.worker.monitoring.MonitoringWorkerSettings
+
+worker-alerting: ## Run alerting worker (send notifications)
+	@printf "$(BLUE)Starting alerting worker...$(NC)\n"
+	cd src && poetry run arq src.worker.alerting.AlertingWorkerSettings
+
+worker: ## Run both workers (monitoring + alerting) - use docker-compose instead
+	@printf "$(YELLOW)⚠ For production, use 'make docker-up' to run both workers$(NC)\n"
+	@printf "$(BLUE)To run individually:$(NC)\n"
+	@printf "  make worker-monitoring\n"
+	@printf "  make worker-alerting\n"
 
 ui: ## Run Streamlit UI dashboard
 	@printf "$(BLUE)Starting Streamlit UI...$(NC)\n"

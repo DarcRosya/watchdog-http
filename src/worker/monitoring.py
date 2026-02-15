@@ -1,365 +1,18 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 import json
 
 import httpx
 from arq import cron
-from sqlalchemy import select, func
 
 from src.config.settings import settings
-from src.core.database import async_session_factory
-from src.core.logging import configure_logging, get_logger
 from src.models.monitor import Monitor
 from src.models.resultlog import ResultLog
-from src.models.user import User
-from src.telegram.notifier import (
-    TelegramNotifier,
-    AlertType,
-    get_predefined_message,
+from src.worker.lifecycle import (
+    startup_monitoring,
+    shutdown,
+    logger,
 )
-
-configure_logging(
-    service="worker",
-    json_logs=not settings.debug_mode,
-    log_level="DEBUG" if settings.debug_mode else "INFO",
-    enable_file_logging=settings.enable_file_logging,
-)
-logger = get_logger("worker")
-
-
-def get_next_aligned_time(interval_seconds: int = 60) -> datetime:
-    now = datetime.now(timezone.utc)
-    aligned_now = now.replace(second=0, microsecond=0)
-
-    return aligned_now + timedelta(seconds=interval_seconds)
-
-
-async def hydrate_cache(ctx: dict[str, Any]):
-    """Initialize Redis cache with active monitors and restore last known states from DB logs."""
-    session_factory = ctx["session_factory"]
-    redis = ctx["redis"]
-
-    logger.info("hydrate_cache_started")
-
-    # Clear old scheduler data
-    await redis.delete("scheduler")
-
-    async with session_factory() as session:
-        latest_log_subquery = (
-            select(
-                ResultLog.monitor_id,
-                func.max(ResultLog.start_time).label("last_start_time"),
-            )
-            .group_by(ResultLog.monitor_id)
-            .subquery()
-        )
-
-        query = (
-            select(Monitor, User, ResultLog)
-            .join(User, Monitor.user_id == User.id)
-            .outerjoin(
-                latest_log_subquery,
-                Monitor.id == latest_log_subquery.c.monitor_id,
-            )
-            .outerjoin(
-                ResultLog,
-                (ResultLog.monitor_id == latest_log_subquery.c.monitor_id)
-                & (ResultLog.start_time == latest_log_subquery.c.last_start_time),
-            )
-            .where(Monitor.is_active == True)  # noqa: E712
-        )
-
-        result = await session.execute(query)
-        rows = result.all()
-
-        if not rows:
-            logger.info("hydrate_cache_no_monitors")
-            return
-
-        logger.info("hydrate_cache_loading", count=len(rows))
-
-        async with redis.pipeline() as pipe:
-            for monitor, user, last_log in rows:
-                # Store interval
-                pipe.set(f"monitor:{monitor.id}:interval", monitor.interval)
-
-                # Store full config as JSON to avoid DB hits on every check
-                config = {
-                    "url": monitor.url,
-                    "method": monitor.method,
-                    "headers": monitor.headers or {},
-                    "body": monitor.body,
-                    "is_active": monitor.is_active,
-                    "name": monitor.name,
-                    "user_id": monitor.user_id,
-                    "username": user.username,
-                    "telegram_chat_id": user.telegram_chat_id,
-                }
-
-                pipe.setex(f"monitor:{monitor.id}:config", 86400, json.dumps(config))
-
-                next_run = get_next_aligned_time(monitor.interval).timestamp()
-                pipe.zadd("scheduler", {str(monitor.id): next_run})
-
-                if last_log:
-                    # Restore state from last check (TTL 24h to auto-cleanup)
-                    # NOTE: We intentionally DO NOT restore last_check_time here
-                    # to prevent false recovery alerts on first check after worker restart
-                    state_key = f"monitor:{monitor.id}:state"
-                    pipe.setex(state_key, 86400, "1" if last_log.is_success else "0")
-
-                    logger.debug(
-                        "state_restored",
-                        monitor_id=monitor.id,
-                        last_status=last_log.is_success,
-                        last_check=last_log.start_time.isoformat(),
-                    )
-
-            await pipe.execute()
-
-        logger.info("hydrate_cache_completed", monitors_loaded=len(rows))
-
-
-async def startup(ctx: dict[str, Any]) -> None:
-    logger.info(
-        "startup",
-        database_host=settings.db.HOST,
-        database_port=settings.db.PORT,
-        redis_host=settings.redis.R_HOST,
-        redis_port=settings.redis.R_PORT,
-        telegram_enabled=True,
-    )
-
-    ctx["http_client"] = httpx.AsyncClient(
-        timeout=httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0),
-        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
-        follow_redirects=True,
-    )
-
-    ctx["session_factory"] = async_session_factory
-
-    # reuses http_client
-    ctx["notifier"] = TelegramNotifier(http_client=ctx["http_client"])
-
-    await hydrate_cache(ctx)
-
-    logger.info("worker_ready")
-
-
-async def shutdown(ctx: dict[str, Any]) -> None:
-    logger.info("shutdown_started")
-
-    http_client: httpx.AsyncClient = ctx.get("http_client")
-    if http_client:
-        await http_client.aclose()
-        logger.info("http_client_closed")
-
-    logger.info("shutdown_complete")
-
-
-# =============================================================================
-# TASK: Send HTTP error alert (based on logs)
-# =============================================================================
-
-
-async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
-    session_factory = ctx["session_factory"]
-    redis = ctx["redis"]
-    notifier: TelegramNotifier = ctx["notifier"]
-
-    config_key = f"monitor:{monitor_id}:config"
-    config_raw = await redis.get(config_key)
-
-    if not config_raw:
-        logger.warning("http_alert_monitor_not_found", monitor_id=monitor_id)
-        return {"status": "skipped", "reason": "not_found"}
-
-    config = json.loads(config_raw)
-
-    if not config["telegram_chat_id"]:
-        logger.info(
-            "http_alert_skipped_no_telegram",
-            user=config["username"],
-            monitor_id=monitor_id,
-        )
-        return {"status": "skipped", "reason": "no_telegram"}
-
-    # Need to fetch last log from DB for status_code and duration_ms
-    async with session_factory() as session:
-        log_query = (
-            select(ResultLog)
-            .where(ResultLog.monitor_id == monitor_id)
-            .order_by(ResultLog.start_time.desc())
-            .limit(1)
-        )
-        log_result = await session.execute(log_query)
-        last_log = log_result.scalars().first()
-
-    message = get_predefined_message(
-        alert_type=AlertType.HTTP_ERROR,
-        monitor_name=config["name"] or "",
-        url=config["url"],
-        status_code=last_log.status_code if last_log else None,
-        duration_ms=last_log.duration_ms if last_log else None,
-    )
-
-    success = await notifier.send_alert(config["telegram_chat_id"], message)
-
-    if success:
-        logger.info(
-            "alert_sent",
-            alert_type="http_error",
-            user=config["username"],
-            monitor_id=monitor_id,
-            monitor_name=config["name"],
-            url=config["url"],
-        )
-    else:
-        logger.error(
-            "alert_failed",
-            alert_type="http_error",
-            user=config["username"],
-            monitor_id=monitor_id,
-        )
-
-    return {
-        "status": "sent" if success else "failed",
-        "monitor_id": monitor_id,
-        "user": config["username"],
-    }
-
-
-# =============================================================================
-# TASK: Send exception-based alert (no logs needed)
-# =============================================================================
-
-
-async def send_alert_exception(
-    ctx: dict[str, Any],
-    monitor_id: int,
-    alert_type: str,
-    error_message: str | None = None,
-) -> dict[str, Any]:
-    redis = ctx["redis"]
-    notifier: TelegramNotifier = ctx["notifier"]
-
-    alert_type_map = {
-        "timeout": AlertType.TIMEOUT,
-        "connection": AlertType.CONNECTION_ERROR,
-        "request": AlertType.REQUEST_ERROR,
-    }
-    alert_enum = alert_type_map.get(alert_type, AlertType.REQUEST_ERROR)
-
-    config_key = f"monitor:{monitor_id}:config"
-    config_raw = await redis.get(config_key)
-
-    if not config_raw:
-        logger.warning(
-            "alert_monitor_not_found", monitor_id=monitor_id, alert_type=alert_type
-        )
-        return {"status": "skipped", "reason": "not_found"}
-
-    config = json.loads(config_raw)
-
-    if not config["telegram_chat_id"]:
-        logger.info(
-            "alert_skipped_no_telegram",
-            user=config["username"],
-            monitor_id=monitor_id,
-            alert_type=alert_type,
-        )
-        return {"status": "skipped", "reason": "no_telegram"}
-
-    message = get_predefined_message(
-        alert_type=alert_enum,
-        monitor_name=config["name"] or "",
-        url=config["url"],
-        error=error_message,
-    )
-
-    success = await notifier.send_message(config["telegram_chat_id"], message)
-
-    if success:
-        logger.info(
-            "alert_sent",
-            alert_type=alert_type,
-            user=config["username"],
-            monitor_id=monitor_id,
-            monitor_name=config["name"],
-            url=config["url"],
-            error=error_message,
-        )
-    else:
-        logger.error(
-            "alert_failed",
-            alert_type=alert_type,
-            user=config["username"],
-            monitor_id=monitor_id,
-        )
-
-    return {
-        "status": "sent" if success else "failed",
-        "monitor_id": monitor_id,
-        "alert_type": alert_type,
-        "user": config["username"],
-    }
-
-
-# =============================================================================
-# TASK: Send recovery alert (transitions from ERROR to OK).
-# =============================================================================
-
-
-async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
-    redis = ctx["redis"]
-    notifier: TelegramNotifier = ctx["notifier"]
-
-    config_key = f"monitor:{monitor_id}:config"
-    config_raw = await redis.get(config_key)
-
-    if not config_raw:
-        logger.warning("recovery_alert_monitor_not_found", monitor_id=monitor_id)
-        return {"status": "skipped", "reason": "not_found"}
-
-    config = json.loads(config_raw)
-
-    if not config["telegram_chat_id"]:
-        logger.info(
-            "recovery_alert_skipped_no_telegram",
-            user=config["username"],
-            monitor_id=monitor_id,
-        )
-        return {"status": "skipped", "reason": "no_telegram"}
-
-    message = get_predefined_message(
-        alert_type=AlertType.RECOVERY,
-        monitor_name=config["name"] or "",
-        url=config["url"],
-    )
-
-    success = await notifier.send_message(config["telegram_chat_id"], message)
-
-    if success:
-        logger.info(
-            "recovery_alert_sent",
-            user=config["username"],
-            monitor_id=monitor_id,
-            monitor_name=config["name"],
-            url=config["url"],
-        )
-    else:
-        logger.error(
-            "recovery_alert_failed",
-            user=config["username"],
-            monitor_id=monitor_id,
-        )
-
-    return {
-        "status": "sent" if success else "failed",
-        "monitor_id": monitor_id,
-        "user": config["username"],
-    }
-
 
 # =============================================================================
 # TASK: Check single monitor
@@ -706,42 +359,32 @@ async def scheduler(ctx: dict[str, Any]) -> None:
     logger.debug("scheduler_completed", queued_count=len(due_monitors))
 
 
-# =============================================================================
-# ARQ WORKER SETTINGS
-# =============================================================================
-
-
-class WorkerSettings:
+class MonitoringWorkerSettings:
     """
-    Main ARQ worker configuration.
-    ARQ reads this class at startup: arq src.worker.main.WorkerSettings
+    Monitoring Worker configuration for ARQ.
 
-    CRON SYNTAX:
-    cron(func, second=0)        — every minute at 0 seconds
-    cron(func, minute=0)        — every hour at 0 minutes
-    cron(func, second={0, 30})  — every 30 seconds
+    This worker handles:
+    - Checking monitors (HTTP requests)
+    - Scheduler cron job (enqueues monitors every 15 seconds)
     """
 
     redis_settings = settings.redis.arq_settings
+
     functions = [
         check_monitor,
-        send_alert_http_error,
-        send_alert_exception,
-        send_alert_recovery,
     ]
+
     cron_jobs = [
         cron(
             scheduler,
             second={0, 15, 30, 45},  # Every 15 seconds for better UX
-            unique=True,  # Do not start a new one until the old one is finished
+            unique=True,  # Prevent overlapping scheduler runs
         )
     ]
 
-    # Lifecycle hooks
-    on_startup = startup
+    on_startup = startup_monitoring
     on_shutdown = shutdown
 
-    max_jobs = 20
-    job_timeout = 60
-
-    max_tries = 3
+    max_jobs = 50  # High concurrency for HTTP checks
+    job_timeout = 60  # Allow slow endpoints to respond
+    max_tries = 2  # Retry once on failure
