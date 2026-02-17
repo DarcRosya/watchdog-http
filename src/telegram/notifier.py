@@ -131,7 +131,6 @@ class TelegramNotifier:
         return await self.send_message(chat_id, text)
 
 
-# Pre-formatted messages for quick notifications
 PREDEFINED_MESSAGES = {
     AlertType.HTTP_ERROR: (
         "🔴 <b>HTTP Error</b>\n\n"

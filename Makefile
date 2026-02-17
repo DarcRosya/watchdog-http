@@ -148,12 +148,12 @@ pre-commit-run: ## Run pre-commit on all files
 
 sync-version: ## Sync version across all files (usage: make sync-version VERSION=1.6.0)
 	@printf "$(BLUE)Syncing version across files...$(NC)\n"
-	@if [ -z "$(VERSION)" ]; then \
+	@if [ -z "$(SET)" ]; then \
 		printf "$(RED)Error: VERSION is required$(NC)\n"; \
-		printf "Usage: make sync-version VERSION=1.6.0\n"; \
+		printf "Usage: make sync-version SET=1.6.0\n"; \
 		exit 1; \
 	fi
-	@python scripts/sync_version.py $(VERSION)
+	@python scripts/sync_version.py $(SET)
 	@printf "$(GREEN)✓ Version synced$(NC)\n"
 
 ## Cleanup

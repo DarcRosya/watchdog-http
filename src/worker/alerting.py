@@ -17,6 +17,39 @@ from src.worker.lifecycle import (
     logger,
 )
 
+
+# =============================================================================
+# TASK: Send Telegram message 
+# =============================================================================
+
+
+async def send_telegram_message(
+    ctx: dict[str, Any],
+    chat_id: int,
+    message: str,
+    alert_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    notifier: TelegramNotifier = ctx["notifier"]
+
+    success = await notifier.send_message(chat_id, message)
+
+    if success:
+        logger.info(
+            "telegram_message_sent",
+            **alert_metadata,
+        )
+    else:
+        logger.error(
+            "telegram_message_failed",
+            **alert_metadata,
+        )
+
+    return {
+        "status": "sent" if success else "failed",
+        **alert_metadata,
+    }
+
+
 # =============================================================================
 # TASK: Send HTTP error alert (based on logs)
 # =============================================================================
@@ -25,7 +58,6 @@ from src.worker.lifecycle import (
 async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     session_factory = ctx["session_factory"]
     redis = ctx["redis"]
-    notifier: TelegramNotifier = ctx["notifier"]
 
     config_key = f"monitor:{monitor_id}:config"
     config_raw = await redis.get(config_key)
@@ -63,27 +95,26 @@ async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[st
         duration_ms=last_log.duration_ms if last_log else None,
     )
 
-    success = await notifier.send_alert(config["telegram_chat_id"], message)
+    # Enqueue message sending
+    alert_metadata = {
+        "alert_type": "http_error",
+        "monitor_id": monitor_id,
+        "user": config["username"],
+        "monitor_name": config["name"],
+        "url": config["url"],
+    }
 
-    if success:
-        logger.info(
-            "alert_sent",
-            alert_type="http_error",
-            user=config["username"],
-            monitor_id=monitor_id,
-            monitor_name=config["name"],
-            url=config["url"],
-        )
-    else:
-        logger.error(
-            "alert_failed",
-            alert_type="http_error",
-            user=config["username"],
-            monitor_id=monitor_id,
-        )
+    await redis.enqueue_job(
+        "send_telegram_message",
+        config["telegram_chat_id"],
+        message,
+        alert_metadata,
+    )
+
+    logger.info("alert_queued", **alert_metadata)
 
     return {
-        "status": "sent" if success else "failed",
+        "status": "queued",
         "monitor_id": monitor_id,
         "user": config["username"],
     }
@@ -101,7 +132,6 @@ async def send_alert_exception(
     error_message: str | None = None,
 ) -> dict[str, Any]:
     redis = ctx["redis"]
-    notifier: TelegramNotifier = ctx["notifier"]
 
     alert_type_map = {
         "timeout": AlertType.TIMEOUT,
@@ -137,28 +167,27 @@ async def send_alert_exception(
         error=error_message,
     )
 
-    success = await notifier.send_message(config["telegram_chat_id"], message)
+    # Enqueue message sending
+    alert_metadata = {
+        "alert_type": alert_type,
+        "monitor_id": monitor_id,
+        "user": config["username"],
+        "monitor_name": config["name"],
+        "url": config["url"],
+        "error": error_message,
+    }
 
-    if success:
-        logger.info(
-            "alert_sent",
-            alert_type=alert_type,
-            user=config["username"],
-            monitor_id=monitor_id,
-            monitor_name=config["name"],
-            url=config["url"],
-            error=error_message,
-        )
-    else:
-        logger.error(
-            "alert_failed",
-            alert_type=alert_type,
-            user=config["username"],
-            monitor_id=monitor_id,
-        )
+    await redis.enqueue_job(
+        "send_telegram_message",
+        config["telegram_chat_id"],
+        message,
+        alert_metadata,
+    )
+
+    logger.info("alert_queued", **alert_metadata)
 
     return {
-        "status": "sent" if success else "failed",
+        "status": "queued",
         "monitor_id": monitor_id,
         "alert_type": alert_type,
         "user": config["username"],
@@ -172,7 +201,6 @@ async def send_alert_exception(
 
 async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     redis = ctx["redis"]
-    notifier: TelegramNotifier = ctx["notifier"]
 
     config_key = f"monitor:{monitor_id}:config"
     config_raw = await redis.get(config_key)
@@ -197,25 +225,26 @@ async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str,
         url=config["url"],
     )
 
-    success = await notifier.send_message(config["telegram_chat_id"], message)
+    # Enqueue message sending
+    alert_metadata = {
+        "alert_type": "recovery",
+        "monitor_id": monitor_id,
+        "user": config["username"],
+        "monitor_name": config["name"],
+        "url": config["url"],
+    }
 
-    if success:
-        logger.info(
-            "recovery_alert_sent",
-            user=config["username"],
-            monitor_id=monitor_id,
-            monitor_name=config["name"],
-            url=config["url"],
-        )
-    else:
-        logger.error(
-            "recovery_alert_failed",
-            user=config["username"],
-            monitor_id=monitor_id,
-        )
+    await redis.enqueue_job(
+        "send_telegram_message",
+        config["telegram_chat_id"],
+        message,
+        alert_metadata,
+    )
+
+    logger.info("alert_queued", **alert_metadata)
 
     return {
-        "status": "sent" if success else "failed",
+        "status": "queued",
         "monitor_id": monitor_id,
         "user": config["username"],
     }
@@ -234,6 +263,7 @@ class AlertingWorkerSettings:
     redis_settings = settings.redis.arq_settings
 
     functions = [
+        send_telegram_message,
         send_alert_http_error,
         send_alert_exception,
         send_alert_recovery,

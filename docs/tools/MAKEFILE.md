@@ -67,7 +67,7 @@ make docker-clean    # Remove everything (with confirmation)
 ### 5. Version Management
 
 ```bash
-make sync-version VERSION=1.6.0   # Set version in all files
+make sync-version SET=1.6.0   # Set version in all files
 ```
 
 **When to use:**
