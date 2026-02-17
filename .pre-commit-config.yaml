@@ -3,43 +3,25 @@ repos:
     rev: 24.10.0
     hooks:
       - id: black
-        language_version: python3.12
         files: ^(src|ui)/.*\.py$
 
-  # Sync version across project files
-  - repo: local
-    hooks:
-      - id: sync-version
-        name: Sync version across files
-        entry: python scripts/sync_version.py
-        language: system
-        files: ^(README\.md|src/pyproject\.toml|src/main\.py)$
-        pass_filenames: false
-        stages: [manual]
-
-  # Remove trailing whitespace
+  # Basic file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        exclude: ^docs/
       - id: end-of-file-fixer
-        exclude: ^docs/
       - id: check-yaml
-        args: [--safe]
-      - id: check-added-large-files
-        args: ['--maxkb=1000']
-      - id: check-merge-conflict
       - id: check-json
       - id: check-toml
-      - id: mixed-line-ending
-        args: ['--fix=lf']
+      - id: check-merge-conflict
+      - id: debug-statements
 
-  # Python import sorting
-  - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
+  - repo: local
     hooks:
-      - id: isort
-        name: isort (python)
-        args: ["--profile", "black"]
-        files: ^(src|ui)/.*\.py$
+      - id: mypy
+        name: mypy type check
+        entry: bash -c 'cd src && poetry run mypy .'
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -1,4 +1,3 @@
-"""Alerting worker: Telegram notifications for monitor failures and recoveries."""
 from typing import Any
 import json
 
@@ -17,9 +16,8 @@ from src.worker.lifecycle import (
     logger,
 )
 
-
 # =============================================================================
-# TASK: Send Telegram message 
+# TASK: Send Telegram message
 # =============================================================================
 
 

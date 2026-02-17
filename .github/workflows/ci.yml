@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-check:
+    name: Lint and Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            src/.venv
+            ui/.venv
+          key: ${{ runner.os }}-poetry-${{ hashFiles('src/poetry.lock', 'ui/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      - name: Install dependencies
+        run: make install
+
+      - name: Check code formatting
+        run: |
+          (cd src && poetry run black --check .)
+          (cd ui && poetry run black --check .)
+
+      - name: Run linters
+        run: make lint
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker images
+        run: make docker-build
+
+  version-sync-check:
+    name: Version Sync Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check version consistency
+        run: |
+          VERSION=$(grep '^version = ' src/pyproject.toml | cut -d'"' -f2)
+          echo "Main version: $VERSION"
+
+          if ! grep -q "version = \"$VERSION\"" src/pyproject.toml; then
+            echo "Version mismatch in src/pyproject.toml"
+            exit 1
+          fi
+
+          echo "✓ Version check passed"

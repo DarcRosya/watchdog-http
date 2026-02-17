@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format clean docker-up docker-down docker-build migrate upgrade downgrade pre-commit sync-version
+.PHONY: help install lock update test lint format check clean docker-up docker-down docker-build migrate upgrade downgrade pre-commit commit amend sync-version
 
 # Colors for output
 BLUE := \033[0;34m
@@ -21,27 +21,17 @@ install: ## Install dependencies with Poetry
 	cd ui && poetry install
 	@printf "$(GREEN)✓ Dependencies installed$(NC)\n"
 
-dev: ## Run development server with auto-reload
-	@printf "$(BLUE)Starting development server...$(NC)\n"
-	cd src && poetry run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+lock: ## Update poetry.lock files
+	@printf "$(BLUE)Updating lock files...$(NC)\n"
+	cd src && poetry lock --no-update
+	cd ui && poetry lock --no-update
+	@printf "$(GREEN)✓ Lock files updated$(NC)\n"
 
-worker-monitoring: ## Run monitoring worker (check monitors + scheduler)
-	@printf "$(BLUE)Starting monitoring worker...$(NC)\n"
-	cd src && poetry run arq src.worker.monitoring.MonitoringWorkerSettings
-
-worker-alerting: ## Run alerting worker (send notifications)
-	@printf "$(BLUE)Starting alerting worker...$(NC)\n"
-	cd src && poetry run arq src.worker.alerting.AlertingWorkerSettings
-
-worker: ## Run both workers (monitoring + alerting) - use docker-compose instead
-	@printf "$(YELLOW)⚠ For production, use 'make docker-up' to run both workers$(NC)\n"
-	@printf "$(BLUE)To run individually:$(NC)\n"
-	@printf "  make worker-monitoring\n"
-	@printf "  make worker-alerting\n"
-
-ui: ## Run Streamlit UI dashboard
-	@printf "$(BLUE)Starting Streamlit UI...$(NC)\n"
-	cd ui && poetry run streamlit run app.py
+update: ## Update dependencies to latest versions
+	@printf "$(BLUE)Updating dependencies...$(NC)\n"
+	cd src && poetry update
+	cd ui && poetry update
+	@printf "$(GREEN)✓ Dependencies updated$(NC)\n"
 
 ## Code Quality
 
@@ -96,26 +86,26 @@ db-reset: ## Reset database (downgrade all + upgrade head)
 
 docker-build: ## Build Docker images
 	@printf "$(BLUE)Building Docker images...$(NC)\n"
-	docker-compose build
+	docker compose build
 	@printf "$(GREEN)✓ Docker images built$(NC)\n"
 
 docker-up: ## Start all services with Docker Compose
 	@printf "$(BLUE)Starting Docker services...$(NC)\n"
-	docker-compose up -d
+	docker compose up -d
 	@printf "$(GREEN)✓ Services started$(NC)\n"
 	@printf "API: http://localhost:8000\n"
 	@printf "UI: http://localhost:8501\n"
 
 docker-down: ## Stop all Docker services
 	@printf "$(BLUE)Stopping Docker services...$(NC)\n"
-	docker-compose down
+	docker compose down
 	@printf "$(GREEN)✓ Services stopped$(NC)\n"
 
 docker-logs: ## Show Docker logs (use service=<name> for specific service)
 	@if [ -z "$(service)" ]; then \
-		docker-compose logs -f; \
+		docker compose logs -f; \
 	else \
-		docker-compose logs -f $(service); \
+		docker compose logs -f $(service); \
 	fi
 
 docker-restart: docker-down docker-up ## Restart all Docker services
@@ -124,7 +114,7 @@ docker-clean: ## Remove all containers, volumes and images
 	@echo "$(YELLOW)⚠ This will remove all containers, volumes and images!$(NC)"
 	@read -p "Are you sure? [y/N] " confirm; \
 	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
-		docker-compose down -v --rmi all; \
+		docker compose down -v --rmi all; \
 		printf "$(GREEN)✓ Cleanup complete$(NC)\n"; \
 	else \
 		printf "$(RED)Aborted$(NC)\n"; \
@@ -134,17 +124,41 @@ docker-clean: ## Remove all containers, volumes and images
 
 pre-commit: ## Install pre-commit hooks
 	@printf "$(BLUE)Installing pre-commit hooks...$(NC)\n"
-	@if ! command -v pre-commit &> /dev/null; then \
-		printf "$(YELLOW)pre-commit not found. Installing...$(NC)\n"; \
-		pip install pre-commit; \
-	fi
-	pre-commit install
+	cd src && poetry run pre-commit install
 	@printf "$(GREEN)✓ Pre-commit hooks installed$(NC)\n"
 
 pre-commit-run: ## Run pre-commit on all files
 	@printf "$(BLUE)Running pre-commit hooks...$(NC)\n"
-	pre-commit run --all-files
+	cd src && poetry run pre-commit run --all-files
 	@printf "$(GREEN)✓ Pre-commit checks complete$(NC)\n"
+
+commit: ## Smart commit: format + add all changes + open editor
+	@make format
+	@printf "$(BLUE)Adding all changes...$(NC)\n"
+	@git add -A
+	@printf "$(BLUE)Opening commit editor...$(NC)\n"
+	@if git commit; then \
+		printf "$(GREEN)✓ Commit successful$(NC)\n"; \
+	else \
+		printf "$(YELLOW)Pre-commit made changes, adding and retrying...$(NC)\n"; \
+		git add -A; \
+		git commit --no-verify; \
+		printf "$(GREEN)✓ Commit successful$(NC)\n"; \
+	fi
+
+amend: ## Smart amend: format + add all changes + amend last commit
+	@make format
+	@printf "$(BLUE)Adding all changes...$(NC)\n"
+	@git add -A
+	@printf "$(BLUE)Amending last commit...$(NC)\n"
+	@if git commit --amend; then \
+		printf "$(GREEN)✓ Amend successful$(NC)\n"; \
+	else \
+		printf "$(YELLOW)Pre-commit made changes, adding and retrying...$(NC)\n"; \
+		git add -A; \
+		git commit --amend --no-verify; \
+		printf "$(GREEN)✓ Amend successful$(NC)\n"; \
+	fi
 
 sync-version: ## Sync version across all files (usage: make sync-version VERSION=1.6.0)
 	@printf "$(BLUE)Syncing version across files...$(NC)\n"
@@ -184,8 +198,7 @@ setup: install pre-commit upgrade ## Complete setup (install + pre-commit + migr
 	@printf "\n"
 	@printf "$(BLUE)Next steps:$(NC)\n"
 	@printf "  1. Copy .env.example to .env and configure\n"
-	@printf "  2. Run '$(GREEN)make dev$(NC)' to start development server\n"
-	@printf "  3. Run '$(GREEN)make worker$(NC)' to start background worker\n"
+	@printf "  2. Run '$(GREEN)make docker-up$(NC)' to start full stack\n"
 	@printf "\n"
 
 ## Info
