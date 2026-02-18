@@ -1,17 +1,17 @@
 from typing import Optional
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.core.logging import get_logger
 from src.models.user import User
+from src.repositories.user import UserRepository
 
 logger = get_logger("service")
 
 
 class UserService:
-    def __init__(self, session: AsyncSession):
-        self.session = session
+    """Service layer for User business logic."""
+
+    def __init__(self, session):
+        self.user_repo = UserRepository(session)
 
     async def create_user(self) -> User:
         """Create user with auto-generated username and API key."""
@@ -19,56 +19,24 @@ class UserService:
 
         username = generate_random_username()
         user = User(username=username)
-        self.session.add(user)
-        await self.session.commit()
-        await self.session.refresh(user)
+        user = await self.user_repo.create(user)
 
         logger.info("user_created", user_id=user.id, username=user.username)
 
         return user
 
     async def get_user_by_id(self, user_id: int) -> Optional[User]:
-        query = select(User).where(User.id == user_id)
-        result = await self.session.execute(query)
-
-        return result.scalars().first()
+        """Get user by ID."""
+        return await self.user_repo.get_by_id(user_id)
 
     async def get_user_by_username(self, username: str) -> Optional[User]:
-        query = select(User).where(User.username == username)
-        result = await self.session.execute(query)
-
-        return result.scalars().first()
+        """Get user by username."""
+        return await self.user_repo.get_by_username(username)
 
     async def get_user_by_api_key(self, api_key: str) -> Optional[User]:
-        query = select(User).where(User.api_key == api_key)
-        result = await self.session.execute(query)
-
-        return result.scalars().first()
+        """Get user by API key."""
+        return await self.user_repo.get_by_api_key(api_key)
 
     async def get_user_by_telegram_id(self, telegram_chat_id: int) -> Optional[User]:
-        query = select(User).where(User.telegram_chat_id == telegram_chat_id)
-        result = await self.session.execute(query)
-
-        return result.scalars().first()
-
-    # async def get_or_create_user(
-    #     self, username: str, telegram_chat_id: Optional[int] = None
-    # ) -> tuple[User, bool]:
-    #     """Legacy method ""
-    #     if telegram_chat_id:
-    #         existing = await self.get_user_by_telegram_id(telegram_chat_id)
-    #         if existing:
-    #             logger.info(
-    #                 "user_found_by_telegram",
-    #                 username=existing.username,
-    #                 telegram_chat_id=telegram_chat_id,
-    #             )
-    #             return existing, False
-
-    #     # Create user with specified username (not auto-generated)
-    #     user = User(username=username, telegram_chat_id=telegram_chat_id)
-    #     self.session.add(user)
-    #     await self.session.commit()
-    #     await self.session.refresh(user)
-    #     logger.info("user_created", user_id=user.id, username=user.username)
-    #     return user, True
+        """Get user by Telegram chat ID."""
+        return await self.user_repo.get_by_telegram_id(telegram_chat_id)

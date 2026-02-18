@@ -4,13 +4,12 @@ from typing import List, Tuple
 
 import httpx
 import redis.asyncio as aioredis
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.logging import get_logger
 from src.models.monitor import Monitor
-from src.models.resultlog import ResultLog
-from src.models.user import User
+from src.repositories.monitor import MonitorRepository
+from src.repositories.resultlog import ResultLogRepository
+from src.repositories.user import UserRepository
 from src.schemas.monitor import MonitorCreate, MonitoringStatus, MonitorUpdate
 from src.utils.time import get_next_aligned_time
 
@@ -18,9 +17,13 @@ logger = get_logger("service")
 
 
 class MonitorService:
-    def __init__(self, session: AsyncSession, redis: aioredis.Redis | None = None):
-        self.session = session
+    """Service layer for Monitor business logic and Redis operations."""
+
+    def __init__(self, session, redis: aioredis.Redis | None = None):
         self.redis = redis
+        self.monitor_repo = MonitorRepository(session)
+        self.user_repo = UserRepository(session)
+        self.resultlog_repo = ResultLogRepository(session)
 
     async def _check_single_url(
         self, client: httpx.AsyncClient, url: str
@@ -41,17 +44,11 @@ class MonitorService:
 
     async def get_all_by_user(self, user_id: int) -> List[Monitor]:
         """Get all monitors for a specific user."""
-        query = select(Monitor).where(Monitor.user_id == user_id)
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
+        return await self.monitor_repo.get_all_by_user(user_id)
 
     async def get_by_id(self, monitor_id: int, user_id: int) -> Monitor | None:
         """Get a specific monitor by ID for a user."""
-        query = select(Monitor).where(
-            Monitor.id == monitor_id, Monitor.user_id == user_id
-        )
-        result = await self.session.execute(query)
-        return result.scalars().first()
+        return await self.monitor_repo.get_by_id(monitor_id, user_id)
 
     async def bulk_create_monitors(
         self, monitors_data: List[MonitorCreate], user_id: int
@@ -86,12 +83,7 @@ class MonitorService:
             )
             new_monitors.append(monitor)
 
-        self.session.add_all(new_monitors)
-        await self.session.commit()
-
-        # refresh() is needed to obtain the generated fields (id)
-        for m in new_monitors:
-            await self.session.refresh(m)
+        new_monitors = await self.monitor_repo.bulk_create(new_monitors)
 
         if self.redis:
             await self._add_monitors_to_redis(new_monitors)
@@ -105,10 +97,9 @@ class MonitorService:
 
         import json
 
+        # Fetch user data for all monitors
         user_ids = list(set(m.user_id for m in monitors))
-        user_query = select(User).where(User.id.in_(user_ids))
-        user_result = await self.session.execute(user_query)
-        users = {user.id: user for user in user_result.scalars().all()}
+        users = await self.user_repo.get_by_ids(user_ids)
 
         async with self.redis.pipeline() as pipe:
             for monitor in monitors:
@@ -170,9 +161,8 @@ class MonitorService:
 
         import json
 
-        user_query = select(User).where(User.id == monitor.user_id)
-        user_result = await self.session.execute(user_query)
-        user = user_result.scalars().first()
+        # Fetch user data
+        user = await self.user_repo.get_by_id(monitor.user_id)
 
         config = {
             "url": monitor.url,
@@ -201,45 +191,32 @@ class MonitorService:
 
     async def start_all(self, user_id: int, username: str) -> MonitoringStatus:
         """Activate all monitors for a user."""
-        query = update(Monitor).where(Monitor.user_id == user_id).values(is_active=True)
-        result = await self.session.execute(query)
-        await self.session.commit()
+        affected_count = await self.monitor_repo.activate_all(user_id)
 
-        if self.redis and result.rowcount > 0:
-            monitors_query = select(Monitor).where(
-                Monitor.user_id == user_id, Monitor.is_active == True  # noqa: E712
-            )
-            monitors_result = await self.session.execute(monitors_query)
-            monitors = monitors_result.scalars().all()
-            await self._add_monitors_to_redis(list(monitors))
+        if self.redis and affected_count > 0:
+            monitors = await self.monitor_repo.get_active_by_user(user_id)
+            await self._add_monitors_to_redis(monitors)
 
         logger.info(
             "monitoring_started",
             user=username,
             user_id=user_id,
-            affected_count=result.rowcount,
+            affected_count=affected_count,
         )
 
         return MonitoringStatus(
             status="started",
-            message=f"Activated {result.rowcount} monitor(s)",
-            affected_count=result.rowcount,
+            message=f"Activated {affected_count} monitor(s)",
+            affected_count=affected_count,
         )
 
     async def stop_all(self, user_id: int, username: str) -> MonitoringStatus:
         """Deactivate all monitors for a user."""
+        monitor_ids = []
         if self.redis:
-            monitors_query = select(Monitor.id).where(
-                Monitor.user_id == user_id, Monitor.is_active == True  # noqa: E712
-            )
-            monitors_result = await self.session.execute(monitors_query)
-            monitor_ids = [row[0] for row in monitors_result.all()]
+            monitor_ids = await self.monitor_repo.get_active_ids_by_user(user_id)
 
-        query = (
-            update(Monitor).where(Monitor.user_id == user_id).values(is_active=False)
-        )
-        result = await self.session.execute(query)
-        await self.session.commit()
+        affected_count = await self.monitor_repo.deactivate_all(user_id)
 
         if self.redis and monitor_ids:
             await self._remove_monitors_from_redis(monitor_ids)
@@ -248,20 +225,19 @@ class MonitorService:
             "monitoring_stopped",
             user=username,
             user_id=user_id,
-            affected_count=result.rowcount,
+            affected_count=affected_count,
         )
 
         return MonitoringStatus(
             status="stopped",
-            message=f"Deactivated {result.rowcount} monitor(s)",
-            affected_count=result.rowcount,
+            message=f"Deactivated {affected_count} monitor(s)",
+            affected_count=affected_count,
         )
 
     async def toggle(self, monitor: Monitor) -> Monitor:
         """Toggle monitor active state."""
         monitor.is_active = not monitor.is_active
-        await self.session.commit()
-        await self.session.refresh(monitor)
+        monitor = await self.monitor_repo.update_fields(monitor)
 
         if self.redis:
             if monitor.is_active:
@@ -285,8 +261,7 @@ class MonitorService:
             await self._remove_monitors_from_redis([monitor_id])
 
         logger.info("monitor_deleted", monitor_id=monitor_id, url=monitor_url)
-        await self.session.delete(monitor)
-        await self.session.commit()
+        await self.monitor_repo.delete(monitor)
 
     async def update(self, monitor: Monitor, update_data: MonitorUpdate) -> Monitor:
         """Update monitor configuration."""
@@ -301,8 +276,7 @@ class MonitorService:
         for field, value in update_dict.items():
             setattr(monitor, field, value)
 
-        await self.session.commit()
-        await self.session.refresh(monitor)
+        monitor = await self.monitor_repo.update_fields(monitor)
 
         if self.redis:
             await self._update_monitor_config_in_redis(monitor)
@@ -319,25 +293,18 @@ class MonitorService:
     async def get_statistics(
         self, monitor_id: int, user_id: int, hours: int = 24
     ) -> List[dict]:
-        monitor = await self.get_by_id(monitor_id, user_id)
+        """Get statistics for a monitor."""
+        monitor = await self.monitor_repo.get_by_id(monitor_id, user_id)
         if not monitor:
             return []
 
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=hours)
 
-        query = (
-            select(ResultLog)
-            .where(
-                ResultLog.monitor_id == monitor_id,
-                ResultLog.start_time >= start_time,
-                ResultLog.start_time <= end_time,
-            )
-            .order_by(ResultLog.start_time.asc())
+        # Use repository to fetch logs
+        logs = await self.resultlog_repo.get_by_monitor(
+            monitor_id, start_time, end_time
         )
-
-        result = await self.session.execute(query)
-        logs = result.scalars().all()
 
         return [
             {
