@@ -5,7 +5,12 @@ from fastapi import APIRouter, HTTPException, status
 from src.core.database import DBSession
 from src.core.dependencies import CurrentUser, RedisClient
 from src.core.logging import get_logger
-from src.schemas.monitor import MonitorCreate, MonitorResponse, MonitoringStatus
+from src.schemas.monitor import (
+    MonitorCreate,
+    MonitorResponse,
+    MonitoringStatus,
+    MonitorUpdate,
+)
 from src.services.monitor import MonitorService
 
 logger = get_logger("api")
@@ -89,6 +94,40 @@ async def toggle_monitor(
         )
 
     return await service.toggle(monitor)
+
+
+@router.patch(
+    "/{monitor_id}",
+    response_model=MonitorResponse,
+    summary="Update monitor configuration",
+    description="Update monitor settings: name, URL, method, headers, body, or check interval. Redis config is automatically updated.",
+)
+async def update_monitor(
+    monitor_id: int,
+    update_data: MonitorUpdate,
+    user: CurrentUser,
+    session: DBSession,
+    redis: RedisClient,
+):
+    service = MonitorService(session, redis)
+    monitor = await service.get_by_id(monitor_id, user.id)
+
+    if not monitor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Monitor with id={monitor_id} not found",
+        )
+
+    updated_monitor = await service.update(monitor, update_data)
+
+    logger.info(
+        "monitor_updated_via_api",
+        user=user.username,
+        monitor_id=monitor_id,
+        url=updated_monitor.url,
+    )
+
+    return updated_monitor
 
 
 @router.delete(

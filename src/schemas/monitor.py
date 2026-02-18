@@ -1,6 +1,19 @@
 from typing import Optional
+from enum import Enum
 
 from pydantic import BaseModel, HttpUrl, Field, field_validator
+
+
+class HttpMethod(str, Enum):
+    """Allowed HTTP methods for monitor requests."""
+
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+    PATCH = "PATCH"
+    DELETE = "DELETE"
+    HEAD = "HEAD"
+    OPTIONS = "OPTIONS"
 
 
 class MonitorCreate(BaseModel):
@@ -14,8 +27,8 @@ class MonitorCreate(BaseModel):
         description="Check interval in seconds. Minimum 60, multiples of 60.",
         examples=[60, 120, 300, 600],
     )
-    method: str = Field(
-        default="GET",
+    method: HttpMethod = Field(
+        default=HttpMethod.GET,
         description="HTTP request method",
         examples=["GET", "POST", "HEAD"],
     )
@@ -34,6 +47,30 @@ class MonitorCreate(BaseModel):
 class MonitorResponse(MonitorCreate):
     id: int
     is_active: bool
+
+
+class MonitorUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=50, description="Monitor display name")
+    url: Optional[HttpUrl] = Field(None, description="URL to monitor")
+    method: Optional[HttpMethod] = Field(None, description="HTTP request method")
+    headers: Optional[dict[str, str]] = Field(None, description="Custom HTTP headers")
+    body: Optional[str] = Field(None, description="Request body for POST/PUT/PATCH")
+    interval: Optional[int] = Field(
+        None,
+        ge=60,
+        description="Check interval in seconds (minimum 60, multiples of 60)",
+        examples=[60, 120, 300, 600],
+    )
+
+    @field_validator("interval")
+    @classmethod
+    def interval_must_be_multiple_of_60(cls, v: int | None) -> int | None:
+        if v is not None and v % 60 != 0:
+            raise ValueError(
+                f"The interval must be a multiple of 60 seconds (whole minutes). "
+                f"Received: {v}. Try: {(v // 60 + 1) * 60}"
+            )
+        return v
 
 
 class MonitoringStatus(BaseModel):

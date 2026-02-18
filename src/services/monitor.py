@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.logging import get_logger
 from src.models.monitor import Monitor
 from src.models.resultlog import ResultLog
-from src.schemas.monitor import MonitorCreate, MonitoringStatus
+from src.models.user import User
+from src.schemas.monitor import MonitorCreate, MonitoringStatus, MonitorUpdate
 from src.utils.time import get_next_aligned_time
 
 logger = get_logger("service")
@@ -92,7 +93,6 @@ class MonitorService:
         for m in new_monitors:
             await self.session.refresh(m)
 
-        # Add monitors to Redis scheduler
         if self.redis:
             await self._add_monitors_to_redis(new_monitors)
 
@@ -105,13 +105,18 @@ class MonitorService:
 
         import json
 
+        user_ids = list(set(m.user_id for m in monitors))
+        user_query = select(User).where(User.id.in_(user_ids))
+        user_result = await self.session.execute(user_query)
+        users = {user.id: user for user in user_result.scalars().all()}
+
         async with self.redis.pipeline() as pipe:
             for monitor in monitors:
                 if monitor.is_active:
-                    # Store interval
+                    user = users.get(monitor.user_id)
+
                     pipe.set(f"monitor:{monitor.id}:interval", monitor.interval)
 
-                    # Store full config as JSON (avoid DB hits in check_monitor)
                     config = {
                         "url": monitor.url,
                         "method": monitor.method,
@@ -120,12 +125,13 @@ class MonitorService:
                         "is_active": monitor.is_active,
                         "name": monitor.name,
                         "user_id": monitor.user_id,
+                        "username": user.username if user else "unknown",
+                        "telegram_chat_id": user.telegram_chat_id if user else None,
                     }
                     pipe.setex(
                         f"monitor:{monitor.id}:config", 86400, json.dumps(config)
                     )
 
-                    # Schedule next check
                     next_run = get_next_aligned_time(monitor.interval).timestamp()
                     pipe.zadd("scheduler", {str(monitor.id): next_run})
 
@@ -145,10 +151,8 @@ class MonitorService:
 
         async with self.redis.pipeline() as pipe:
             for monitor_id in monitor_ids:
-                # Remove from scheduler
                 pipe.zrem("scheduler", str(monitor_id))
 
-                # Clean up monitor data
                 pipe.delete(f"monitor:{monitor_id}:interval")
                 pipe.delete(f"monitor:{monitor_id}:config")
                 pipe.delete(f"monitor:{monitor_id}:state")
@@ -166,6 +170,10 @@ class MonitorService:
 
         import json
 
+        user_query = select(User).where(User.id == monitor.user_id)
+        user_result = await self.session.execute(user_query)
+        user = user_result.scalars().first()
+
         config = {
             "url": monitor.url,
             "method": monitor.method,
@@ -174,6 +182,8 @@ class MonitorService:
             "is_active": monitor.is_active,
             "name": monitor.name,
             "user_id": monitor.user_id,
+            "username": user.username if user else "unknown",
+            "telegram_chat_id": user.telegram_chat_id if user else None,
         }
 
         async with self.redis.pipeline() as pipe:
@@ -195,7 +205,6 @@ class MonitorService:
         result = await self.session.execute(query)
         await self.session.commit()
 
-        # Get activated monitors to add to Redis
         if self.redis and result.rowcount > 0:
             monitors_query = select(Monitor).where(
                 Monitor.user_id == user_id, Monitor.is_active == True  # noqa: E712
@@ -219,7 +228,6 @@ class MonitorService:
 
     async def stop_all(self, user_id: int, username: str) -> MonitoringStatus:
         """Deactivate all monitors for a user."""
-        # Get monitor IDs before deactivating
         if self.redis:
             monitors_query = select(Monitor.id).where(
                 Monitor.user_id == user_id, Monitor.is_active == True  # noqa: E712
@@ -233,7 +241,6 @@ class MonitorService:
         result = await self.session.execute(query)
         await self.session.commit()
 
-        # Remove from Redis scheduler
         if self.redis and monitor_ids:
             await self._remove_monitors_from_redis(monitor_ids)
 
@@ -256,13 +263,10 @@ class MonitorService:
         await self.session.commit()
         await self.session.refresh(monitor)
 
-        # Update Redis scheduler
         if self.redis:
             if monitor.is_active:
-                # Activated - add to scheduler
                 await self._add_monitors_to_redis([monitor])
             else:
-                # Deactivated - remove from scheduler
                 await self._remove_monitors_from_redis([monitor.id])
 
         state = "activated" if monitor.is_active else "deactivated"
@@ -277,13 +281,40 @@ class MonitorService:
         monitor_id = monitor.id
         monitor_url = monitor.url
 
-        # Remove from Redis first
         if self.redis:
             await self._remove_monitors_from_redis([monitor_id])
 
         logger.info("monitor_deleted", monitor_id=monitor_id, url=monitor_url)
         await self.session.delete(monitor)
         await self.session.commit()
+
+    async def update(self, monitor: Monitor, update_data: MonitorUpdate) -> Monitor:
+        """Update monitor configuration."""
+        update_dict = update_data.model_dump(exclude_unset=True)
+
+        if "url" in update_dict and update_dict["url"] is not None:
+            update_dict["url"] = str(update_dict["url"])
+
+        if "method" in update_dict and update_dict["method"] is not None:
+            update_dict["method"] = update_dict["method"].value
+
+        for field, value in update_dict.items():
+            setattr(monitor, field, value)
+
+        await self.session.commit()
+        await self.session.refresh(monitor)
+
+        if self.redis:
+            await self._update_monitor_config_in_redis(monitor)
+
+        logger.info(
+            "monitor_updated",
+            monitor_id=monitor.id,
+            url=monitor.url,
+            updated_fields=list(update_dict.keys()),
+        )
+
+        return monitor
 
     async def get_statistics(
         self, monitor_id: int, user_id: int, hours: int = 24
