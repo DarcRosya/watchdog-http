@@ -1,10 +1,6 @@
 from typing import Any
-import json
-
-from sqlalchemy import select
 
 from src.config.settings import settings
-from src.models.resultlog import ResultLog
 from src.telegram.notifier import (
     TelegramNotifier,
     AlertType,
@@ -49,62 +45,50 @@ async def send_telegram_message(
 
 
 # =============================================================================
-# TASK: Send HTTP error alert (based on logs)
+# TASK: Send HTTP error alert
 # =============================================================================
 
 
-async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
-    session_factory = ctx["session_factory"]
+async def send_alert_http_error(
+    ctx: dict[str, Any],
+    chat_id: int,
+    username: str,
+    monitor_id: int,
+    monitor_name: str,
+    monitor_url: str,
+    status_code: int,
+    duration_ms: int,
+) -> dict[str, Any]:
     redis = ctx["redis"]
 
-    config_key = f"monitor:{monitor_id}:config"
-    config_raw = await redis.get(config_key)
-
-    if not config_raw:
-        logger.warning("http_alert_monitor_not_found", monitor_id=monitor_id)
-        return {"status": "skipped", "reason": "not_found"}
-
-    config = json.loads(config_raw)
-
-    if not config["telegram_chat_id"]:
+    if not chat_id:
         logger.info(
             "http_alert_skipped_no_telegram",
-            user=config["username"],
+            user=username,
             monitor_id=monitor_id,
         )
         return {"status": "skipped", "reason": "no_telegram"}
 
-    # Need to fetch last log from DB for status_code and duration_ms
-    async with session_factory() as session:
-        log_query = (
-            select(ResultLog)
-            .where(ResultLog.monitor_id == monitor_id)
-            .order_by(ResultLog.start_time.desc())
-            .limit(1)
-        )
-        log_result = await session.execute(log_query)
-        last_log = log_result.scalars().first()
-
     message = get_predefined_message(
         alert_type=AlertType.HTTP_ERROR,
-        monitor_name=config["name"] or "",
-        url=config["url"],
-        status_code=last_log.status_code if last_log else None,
-        duration_ms=last_log.duration_ms if last_log else None,
+        monitor_name=monitor_name or "",
+        url=monitor_url,
+        status_code=status_code,
+        duration_ms=duration_ms,
     )
 
     # Enqueue message sending
     alert_metadata = {
         "alert_type": "http_error",
         "monitor_id": monitor_id,
-        "user": config["username"],
-        "monitor_name": config["name"],
-        "url": config["url"],
+        "user": username,
+        "monitor_name": monitor_name,
+        "url": monitor_url,
     }
 
     await redis.enqueue_job(
         "send_telegram_message",
-        config["telegram_chat_id"],
+        chat_id,
         message,
         alert_metadata,
     )
@@ -114,18 +98,22 @@ async def send_alert_http_error(ctx: dict[str, Any], monitor_id: int) -> dict[st
     return {
         "status": "queued",
         "monitor_id": monitor_id,
-        "user": config["username"],
+        "user": username,
     }
 
 
 # =============================================================================
-# TASK: Send exception-based alert (no logs needed)
+# TASK: Send exception-based alert
 # =============================================================================
 
 
 async def send_alert_exception(
     ctx: dict[str, Any],
+    chat_id: int,
+    username: str,
     monitor_id: int,
+    monitor_name: str,
+    monitor_url: str,
     alert_type: str,
     error_message: str | None = None,
 ) -> dict[str, Any]:
@@ -138,21 +126,10 @@ async def send_alert_exception(
     }
     alert_enum = alert_type_map.get(alert_type, AlertType.REQUEST_ERROR)
 
-    config_key = f"monitor:{monitor_id}:config"
-    config_raw = await redis.get(config_key)
-
-    if not config_raw:
-        logger.warning(
-            "alert_monitor_not_found", monitor_id=monitor_id, alert_type=alert_type
-        )
-        return {"status": "skipped", "reason": "not_found"}
-
-    config = json.loads(config_raw)
-
-    if not config["telegram_chat_id"]:
+    if not chat_id:
         logger.info(
             "alert_skipped_no_telegram",
-            user=config["username"],
+            user=username,
             monitor_id=monitor_id,
             alert_type=alert_type,
         )
@@ -160,8 +137,8 @@ async def send_alert_exception(
 
     message = get_predefined_message(
         alert_type=alert_enum,
-        monitor_name=config["name"] or "",
-        url=config["url"],
+        monitor_name=monitor_name or "",
+        url=monitor_url,
         error=error_message,
     )
 
@@ -169,15 +146,15 @@ async def send_alert_exception(
     alert_metadata = {
         "alert_type": alert_type,
         "monitor_id": monitor_id,
-        "user": config["username"],
-        "monitor_name": config["name"],
-        "url": config["url"],
+        "user": username,
+        "monitor_name": monitor_name,
+        "url": monitor_url,
         "error": error_message,
     }
 
     await redis.enqueue_job(
         "send_telegram_message",
-        config["telegram_chat_id"],
+        chat_id,
         message,
         alert_metadata,
     )
@@ -188,53 +165,52 @@ async def send_alert_exception(
         "status": "queued",
         "monitor_id": monitor_id,
         "alert_type": alert_type,
-        "user": config["username"],
+        "user": username,
     }
 
 
 # =============================================================================
-# TASK: Send recovery alert (transitions from ERROR to OK).
+# TASK: Send recovery alert
 # =============================================================================
 
 
-async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
+async def send_alert_recovery(
+    ctx: dict[str, Any],
+    chat_id: int,
+    username: str,
+    monitor_id: int,
+    monitor_name: str,
+    monitor_url: str,
+) -> dict[str, Any]:
+    """Send recovery alert with all data passed directly from monitoring worker."""
     redis = ctx["redis"]
 
-    config_key = f"monitor:{monitor_id}:config"
-    config_raw = await redis.get(config_key)
-
-    if not config_raw:
-        logger.warning("recovery_alert_monitor_not_found", monitor_id=monitor_id)
-        return {"status": "skipped", "reason": "not_found"}
-
-    config = json.loads(config_raw)
-
-    if not config["telegram_chat_id"]:
+    if not chat_id:
         logger.info(
             "recovery_alert_skipped_no_telegram",
-            user=config["username"],
+            user=username,
             monitor_id=monitor_id,
         )
         return {"status": "skipped", "reason": "no_telegram"}
 
     message = get_predefined_message(
         alert_type=AlertType.RECOVERY,
-        monitor_name=config["name"] or "",
-        url=config["url"],
+        monitor_name=monitor_name or "",
+        url=monitor_url,
     )
 
     # Enqueue message sending
     alert_metadata = {
         "alert_type": "recovery",
         "monitor_id": monitor_id,
-        "user": config["username"],
-        "monitor_name": config["name"],
-        "url": config["url"],
+        "user": username,
+        "monitor_name": monitor_name,
+        "url": monitor_url,
     }
 
     await redis.enqueue_job(
         "send_telegram_message",
-        config["telegram_chat_id"],
+        chat_id,
         message,
         alert_metadata,
     )
@@ -244,7 +220,7 @@ async def send_alert_recovery(ctx: dict[str, Any], monitor_id: int) -> dict[str,
     return {
         "status": "queued",
         "monitor_id": monitor_id,
-        "user": config["username"],
+        "user": username,
     }
 
 

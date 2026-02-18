@@ -1,5 +1,6 @@
 from typing import Any
 import json
+import asyncio
 
 import httpx
 from sqlalchemy import select, func
@@ -23,89 +24,116 @@ logger = get_logger("worker")
 
 
 async def hydrate_cache(ctx: dict[str, Any]):
-    """Initialize Redis cache with active monitors and restore last known states from DB logs."""
+    """
+    Initialize Redis cache with active monitors and restore last known states from DB logs.
+    Uses distributed lock to ensure only one worker performs hydration.
+    """
     session_factory = ctx["session_factory"]
     redis = ctx["redis"]
 
     logger.info("hydrate_cache_started")
 
-    # Clear old scheduler data
-    await redis.delete("scheduler")
+    lock_key = "hydrate_cache:lock"
+    lock_acquired = await redis.set(
+        lock_key, "1", expire=60, exist=redis.SET_IF_NOT_EXIST
+    )
 
-    async with session_factory() as session:
-        latest_log_subquery = (
-            select(
-                ResultLog.monitor_id,
-                func.max(ResultLog.start_time).label("last_start_time"),
-            )
-            .group_by(ResultLog.monitor_id)
-            .subquery()
+    if not lock_acquired:
+        logger.info(
+            "hydrate_cache_skipped",
+            reason="lock_held_by_another_worker",
+            retry_after_seconds=5,
         )
 
-        query = (
-            select(Monitor, User, ResultLog)
-            .join(User, Monitor.user_id == User.id)
-            .outerjoin(
-                latest_log_subquery,
-                Monitor.id == latest_log_subquery.c.monitor_id,
+        await asyncio.sleep(5)
+        logger.info("hydrate_cache_wait_completed")
+        return
+
+    try:
+        # Clear old scheduler data
+        await redis.delete("scheduler")
+
+        async with session_factory() as session:
+            latest_log_subquery = (
+                select(
+                    ResultLog.monitor_id,
+                    func.max(ResultLog.start_time).label("last_start_time"),
+                )
+                .group_by(ResultLog.monitor_id)
+                .subquery()
             )
-            .outerjoin(
-                ResultLog,
-                (ResultLog.monitor_id == latest_log_subquery.c.monitor_id)
-                & (ResultLog.start_time == latest_log_subquery.c.last_start_time),
+
+            query = (
+                select(Monitor, User, ResultLog)
+                .join(User, Monitor.user_id == User.id)
+                .outerjoin(
+                    latest_log_subquery,
+                    Monitor.id == latest_log_subquery.c.monitor_id,
+                )
+                .outerjoin(
+                    ResultLog,
+                    (ResultLog.monitor_id == latest_log_subquery.c.monitor_id)
+                    & (ResultLog.start_time == latest_log_subquery.c.last_start_time),
+                )
+                .where(Monitor.is_active == True)  # noqa: E712
             )
-            .where(Monitor.is_active == True)  # noqa: E712
-        )
 
-        result = await session.execute(query)
-        rows = result.all()
+            result = await session.execute(query)
+            rows = result.all()
 
-        if not rows:
-            logger.info("hydrate_cache_no_monitors")
-            return
+            if not rows:
+                logger.info("hydrate_cache_no_monitors")
+                return
 
-        logger.info("hydrate_cache_loading", count=len(rows))
+            logger.info("hydrate_cache_loading", count=len(rows))
 
-        async with redis.pipeline() as pipe:
-            for monitor, user, last_log in rows:
-                # Store interval
-                pipe.set(f"monitor:{monitor.id}:interval", monitor.interval)
+            async with redis.pipeline() as pipe:
+                for monitor, user, last_log in rows:
+                    # Store interval
+                    pipe.set(f"monitor:{monitor.id}:interval", monitor.interval)
 
-                # Store full config as JSON to avoid DB hits on every check
-                config = {
-                    "url": monitor.url,
-                    "method": monitor.method,
-                    "headers": monitor.headers or {},
-                    "body": monitor.body,
-                    "is_active": monitor.is_active,
-                    "name": monitor.name,
-                    "user_id": monitor.user_id,
-                    "username": user.username,
-                    "telegram_chat_id": user.telegram_chat_id,
-                }
+                    config = {
+                        "url": monitor.url,
+                        "method": monitor.method,
+                        "headers": monitor.headers or {},
+                        "body": monitor.body,
+                        "is_active": monitor.is_active,
+                        "name": monitor.name,
+                        "user_id": monitor.user_id,
+                        "username": user.username,
+                        "telegram_chat_id": user.telegram_chat_id,
+                    }
 
-                pipe.setex(f"monitor:{monitor.id}:config", 86400, json.dumps(config))
-
-                next_run = get_next_aligned_time(monitor.interval).timestamp()
-                pipe.zadd("scheduler", {str(monitor.id): next_run})
-
-                if last_log:
-                    # Restore state from last check (TTL 24h to auto-cleanup)
-                    # NOTE: We intentionally DO NOT restore last_check_time here
-                    # to prevent false recovery alerts on first check after worker restart
-                    state_key = f"monitor:{monitor.id}:state"
-                    pipe.setex(state_key, 86400, "1" if last_log.is_success else "0")
-
-                    logger.debug(
-                        "state_restored",
-                        monitor_id=monitor.id,
-                        last_status=last_log.is_success,
-                        last_check=last_log.start_time.isoformat(),
+                    pipe.setex(
+                        f"monitor:{monitor.id}:config", 86400, json.dumps(config)
                     )
 
-            await pipe.execute()
+                    next_run = get_next_aligned_time(monitor.interval).timestamp()
+                    pipe.zadd("scheduler", {str(monitor.id): next_run})
 
-        logger.info("hydrate_cache_completed", monitors_loaded=len(rows))
+                    if last_log:
+                        # Restore state from last check (TTL 24h to auto-cleanup)
+                        # NOTE: We intentionally DO NOT restore last_check_time here
+                        # to prevent false recovery alerts on first check after worker restart
+                        state_key = f"monitor:{monitor.id}:state"
+                        pipe.setex(
+                            state_key, 86400, "1" if last_log.is_success else "0"
+                        )
+
+                        logger.debug(
+                            "state_restored",
+                            monitor_id=monitor.id,
+                            last_status=last_log.is_success,
+                            last_check=last_log.start_time.isoformat(),
+                        )
+
+                await pipe.execute()
+
+            logger.info("hydrate_cache_completed", monitors_loaded=len(rows))
+
+    finally:
+        await redis.delete(lock_key)
+        logger.debug("hydrate_cache_lock_released")
 
 
 async def startup_monitoring(ctx: dict[str, Any]) -> None:

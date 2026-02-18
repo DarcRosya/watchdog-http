@@ -43,7 +43,8 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
         monitor_headers = config.get("headers") or {}
         monitor_body = config.get("body")
         monitor_name = config.get("name")
-        user_id = config["user_id"]
+        username = config.get("username")
+        telegram_chat_id = config.get("telegram_chat_id")
     else:
         # Fallback to DB if config not in Redis (shouldn't happen normally)
         async with session_factory() as session:
@@ -57,12 +58,18 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                 logger.debug("monitor_paused", monitor_id=monitor_id, url=monitor.url)
                 return {"status": "skipped", "reason": "paused"}
 
+            # Fetch user data for alerting
+            from src.models.user import User
+
+            user = await session.get(User, monitor.user_id)
+
             monitor_url = monitor.url
             monitor_method = monitor.method
             monitor_headers = monitor.headers or {}
             monitor_body = monitor.body
             monitor_name = monitor.name
-            user_id = monitor.user_id
+            username = user.username if user else "unknown"
+            telegram_chat_id = user.telegram_chat_id if user else None
 
     state_key = f"monitor:{monitor_id}:state"
     cached_state = await redis.get(state_key)
@@ -186,7 +193,11 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             if should_send_recovery:
                 await redis.enqueue_job(
                     "send_alert_recovery",
+                    telegram_chat_id,
+                    username,
                     monitor_id,
+                    monitor_name,
+                    monitor_url,
                 )
                 logger.info(
                     "recovery_alert_queued", monitor_id=monitor_id, url=monitor_url
@@ -227,7 +238,11 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                 # Exception-based error (timeout, connection error, request error)
                 await redis.enqueue_job(
                     "send_alert_exception",
+                    telegram_chat_id,
+                    username,
                     monitor_id,
+                    monitor_name,
+                    monitor_url,
                     alert_type,
                     error_message,
                 )
@@ -242,7 +257,13 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                 # HTTP error (got response but status is 4xx or 5xx)
                 await redis.enqueue_job(
                     "send_alert_http_error",
+                    telegram_chat_id,
+                    username,
                     monitor_id,
+                    monitor_name,
+                    monitor_url,
+                    status_code,
+                    duration_ms,
                 )
                 logger.info(
                     "alert_queued",
@@ -336,25 +357,38 @@ async def scheduler(ctx: dict[str, Any]) -> None:
             next_run = now_ts + interval
             await redis.zadd("scheduler", {str(monitor_id): next_run})
         else:
-            async with session_factory() as session:
-                monitor = await session.get(Monitor, monitor_id)
-                if not monitor:
-                    logger.warning(
-                        "scheduler_zombie_task_removed", monitor_id=monitor_id
-                    )
-                    await redis.zrem("scheduler", str(monitor_id))
-                    await redis.delete(interval_key)
-                    continue
+            # Fallback to DB - wrap in try-except to prevent one monitor's DB error
+            # from killing the entire scheduler loop
+            try:
+                async with session_factory() as session:
+                    monitor = await session.get(Monitor, monitor_id)
+                    if not monitor:
+                        logger.warning(
+                            "scheduler_zombie_task_removed", monitor_id=monitor_id
+                        )
+                        await redis.zrem("scheduler", str(monitor_id))
+                        await redis.delete(interval_key)
+                        continue
 
-                if not monitor.is_active:
-                    logger.info("scheduler_paused_task_removed", monitor_id=monitor_id)
-                    await redis.zrem("scheduler", str(monitor_id))
-                    continue
+                    if not monitor.is_active:
+                        logger.info(
+                            "scheduler_paused_task_removed", monitor_id=monitor_id
+                        )
+                        await redis.zrem("scheduler", str(monitor_id))
+                        continue
 
-                await redis.set(interval_key, monitor.interval)
+                    await redis.set(interval_key, monitor.interval)
 
-                next_run = now_ts + monitor.interval
-                await redis.zadd("scheduler", {str(monitor_id): next_run})
+                    next_run = now_ts + monitor.interval
+                    await redis.zadd("scheduler", {str(monitor_id): next_run})
+            except Exception as e:
+                logger.error(
+                    "scheduler_db_error",
+                    monitor_id=monitor_id,
+                    error=str(e),
+                    action="skipping_monitor",
+                )
+                continue
 
     logger.debug("scheduler_completed", queued_count=len(due_monitors))
 
