@@ -1,0 +1,26 @@
+# Example docker-compose override for local development
+# Copy this file to docker-compose.override.yml and customize for your setup
+#
+# Usage:
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#
+# This file enables:
+# - Hot reload for FastAPI (--reload)
+# - Auto-restart for workers (--watch)
+# - Source code volume mounting for instant changes
+
+services:
+  app:
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./src:/app/src
+
+  monitoring-worker:
+    command: arq src.worker.monitoring.MonitoringWorkerSettings --watch src
+    volumes:
+      - ./src:/app/src
+
+  alerting-worker:
+    command: arq src.worker.alerting.AlertingWorkerSettings --watch src
+    volumes:
+      - ./src:/app/src

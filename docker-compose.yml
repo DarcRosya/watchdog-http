@@ -44,7 +44,7 @@ services:
   app:
     build: ./src
     container_name: watchdog_app
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
     expose:
       - "8000"
@@ -59,9 +59,7 @@ services:
       redis:
         condition: service_started
     volumes:
-      - ./src:/app/src
       - ./logs:/app/logs
-      - /app/src/__pycache__
     deploy:
       resources:
         limits:
@@ -73,8 +71,7 @@ services:
   monitoring-worker:
     build: ./src
     container_name: watchdog_monitoring_worker
-    # --watch src for development
-    command: arq src.worker.monitoring.MonitoringWorkerSettings --watch src
+    command: arq src.worker.monitoring.MonitoringWorkerSettings
     restart: unless-stopped
     env_file:
       - .env
@@ -87,7 +84,6 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./src:/app/src  
       - ./logs:/app/logs
     deploy:
       resources:
@@ -100,8 +96,7 @@ services:
   alerting-worker:
     build: ./src
     container_name: watchdog_alerting_worker
-    # --watch src for development
-    command: arq src.worker.alerting.AlertingWorkerSettings --watch src
+    command: arq src.worker.alerting.AlertingWorkerSettings
     restart: unless-stopped
     env_file:
       - .env
@@ -114,7 +109,6 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./src:/app/src  
       - ./logs:/app/logs
     deploy:
       resources:
