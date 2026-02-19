@@ -21,7 +21,7 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock ./
 
 # -without dev (for future)
-RUN poetry install --no-root --no-interaction --no-ansi
+RUN poetry install --no-root --no-interaction --no-ansi --no-cache
 
 COPY . .
 

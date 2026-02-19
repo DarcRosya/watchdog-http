@@ -38,6 +38,18 @@
 
 </details>
 
+### C3: Components (API Application Structure)
+
+<details>
+<summary>👀 <b>Click to expand component diagram</b></summary>
+<br>
+
+*Detailed view of the API application's internal component structure and dependencies.*
+
+![Component Diagram](docs/architecture/C3-Component(API-APPLICATION).svg)
+
+</details>
+
 ---
 
 ## 🛠 Tech Stack
