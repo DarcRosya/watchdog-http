@@ -3,24 +3,27 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=off \
-    POETRY_VERSION=1.8.2 \
+    POETRY_VERSION=1.8.5 \
     POETRY_HOME="/opt/poetry" \
     POETRY_VIRTUALENVS_CREATE=false
 
-ENV PATH="$POETRY_HOME/bin:$PATH"
+ENV PATH="$POETRY_HOME/bin:$PATH" \
+    POETRY_CACHE_DIR="/opt/poetry_cache"
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    build-essential \
+    libpq-dev \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
-
 RUN curl -sSL https://install.python-poetry.org | python3 -
 
 WORKDIR /app
 
-# Copy dependency files
 COPY pyproject.toml poetry.lock* ./
 
-# Install dependencies
-RUN poetry install --no-root --no-interaction --no-ansi --only main
+RUN poetry install --no-root --no-interaction --no-ansi --without dev\
+    && rm -rf $POETRY_CACHE_DIR
 
 # Copy application
 COPY app.py .
