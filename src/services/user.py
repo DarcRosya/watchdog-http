@@ -3,6 +3,7 @@ from typing import Optional
 from src.core.logging import get_logger
 from src.models.user import User
 from src.repositories.user import UserRepository
+from src.schemas.user import UserUpdate
 
 logger = get_logger("service")
 
@@ -40,3 +41,23 @@ class UserService:
     async def get_user_by_telegram_id(self, telegram_chat_id: int) -> Optional[User]:
         """Get user by Telegram chat ID."""
         return await self.user_repo.get_by_telegram_id(telegram_chat_id)
+
+    async def update_user(self, user_id: int, update_data: UserUpdate) -> User:
+        """Update user profile."""
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            raise ValueError(f"User with id={user_id} not found")
+
+        update_dict = update_data.model_dump(exclude_unset=True)
+        for field, value in update_dict.items():
+            setattr(user, field, value)
+
+        updated_user = await self.user_repo.update_fields(user)
+
+        logger.info(
+            "user_updated",
+            user_id=user_id,
+            updated_fields=list(update_dict.keys()),
+        )
+
+        return updated_user

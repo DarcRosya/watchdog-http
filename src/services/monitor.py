@@ -291,22 +291,26 @@ class MonitorService:
         return monitor
 
     async def get_statistics(
-        self, monitor_id: int, user_id: int, hours: int = 24
-    ) -> List[dict]:
-        """Get statistics for a monitor."""
+        self,
+        monitor_id: int,
+        user_id: int,
+        hours: int = 24,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> dict:
         monitor = await self.monitor_repo.get_by_id(monitor_id, user_id)
         if not monitor:
-            return []
+            return {"data": [], "total": 0, "limit": limit, "offset": offset or 0}
 
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=hours)
 
-        # Use repository to fetch logs
-        logs = await self.resultlog_repo.get_by_monitor(
-            monitor_id, start_time, end_time
+        # Use repository to fetch logs with pagination
+        logs, total_count = await self.resultlog_repo.get_by_monitor(
+            monitor_id, start_time, end_time, limit, offset
         )
 
-        return [
+        data = [
             {
                 "start_time": log.start_time.isoformat(),
                 "duration_ms": log.duration_ms,
@@ -316,3 +320,10 @@ class MonitorService:
             }
             for log in logs
         ]
+
+        return {
+            "data": data,
+            "total": total_count,
+            "limit": limit,
+            "offset": offset or 0,
+        }

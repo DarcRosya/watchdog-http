@@ -28,6 +28,27 @@ async def get_monitors(user: CurrentUser, session: DBSession, redis: RedisClient
     return await service.get_all_by_user(user.id)
 
 
+@router.get(
+    "/{monitor_id}",
+    response_model=MonitorResponse,
+    summary="Get a specific monitor",
+    description="Get detailed information about a single monitor by its ID.",
+)
+async def get_monitor(
+    monitor_id: int, user: CurrentUser, session: DBSession, redis: RedisClient
+):
+    service = MonitorService(session, redis)
+    monitor = await service.get_by_id(monitor_id, user.id)
+
+    if not monitor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Monitor with id={monitor_id} not found",
+        )
+
+    return monitor
+
+
 @router.post(
     "/add-urls",
     response_model=List[MonitorResponse],
@@ -153,9 +174,9 @@ async def delete_monitor(
 
 @router.get(
     "/{monitor_id}/stats",
-    response_model=List[dict],
+    response_model=dict,
     summary="Get monitor statistics",
-    description="Get performance metrics and check history for a specific monitor.",
+    description="Get performance metrics and check history with pagination. Returns: {data: [...], total: int, limit: int|null, offset: int}. Results ordered by start_time descending (newest first).",
 )
 async def get_monitor_statistics(
     monitor_id: int,
@@ -163,6 +184,8 @@ async def get_monitor_statistics(
     session: DBSession,
     redis: RedisClient,
     hours: int = 24,
+    limit: int | None = None,
+    offset: int | None = None,
 ):
     service = MonitorService(session, redis)
 
@@ -173,5 +196,5 @@ async def get_monitor_statistics(
             detail=f"Monitor with id={monitor_id} not found",
         )
 
-    stats = await service.get_statistics(monitor_id, user.id, hours)
+    stats = await service.get_statistics(monitor_id, user.id, hours, limit, offset)
     return stats
