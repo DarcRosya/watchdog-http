@@ -27,30 +27,33 @@ class VersionManager:
         content = self.pyproject_path.read_text()
         match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
         return match.group(1) if match else None
-    
+
     def sync_readme(self, version: str) -> bool:
         if not self.readme_path.exists():
             print(f"⚠️  README.md not found, skipping")
             return False
-        
+
         content = self.readme_path.read_text()
+        # Update shields.io badge version like:
+        # ![Version](https://img.shields.io/badge/version-1.9.7-blue?style=for-the-badge)
+        # replace the numeric part after "badge/version-"
         new_content = re.sub(
-            r"(# 🛡️ Watchdog-http \(ver )[\d.]+(\))",
-            rf"\g<1>{version}\g<2>",
+            r"(badge/version-)(\d+\.\d+\.\d+)",
+            rf"\g<1>{version}",
             content
         )
-        
+
         if content != new_content:
             self.readme_path.write_text(new_content)
             print(f"  ✓ Updated README.md to {version}")
             return True
         return False
-    
+
     def sync_pyproject(self, version: str) -> bool:
         if not self.pyproject_path.exists():
             print(f"⚠️  pyproject.toml not found, skipping")
             return False
-        
+
         content = self.pyproject_path.read_text()
         new_content = re.sub(
             r'^(version\s*=\s*")[^"]+(")' ,
@@ -58,31 +61,31 @@ class VersionManager:
             content,
             flags=re.MULTILINE
         )
-        
+
         if content != new_content:
             self.pyproject_path.write_text(new_content)
             print(f"  ✓ Updated pyproject.toml to {version}")
             return True
         return False
-    
+
     def sync_main(self, version: str) -> bool:
         if not self.main_path.exists():
             print(f"⚠️  main.py not found, skipping")
             return False
-        
+
         content = self.main_path.read_text()
         new_content = re.sub(
             r'(version\s*=\s*")[^"]+(")' ,
             rf'\g<1>{version}\g<2>',
             content
         )
-        
+
         if content != new_content:
             self.main_path.write_text(new_content)
             print(f"  ✓ Updated main.py to {version}")
             return True
         return False
-    
+
     def set_version(self, version: str) -> bool:
         if not self.validate_version(version):
             print(f"❌ Invalid version format: {version}")
@@ -104,13 +107,13 @@ def main():
         print("Usage: python scripts/sync_version.py <version>")
         print("Example: python scripts/sync_version.py 1.6.0")
         print()
-        
+
         # Show current version if available
         manager = VersionManager()
         current = manager.get_current_version()
         if current:
             print(f"Current version: {current}")
-        
+
         sys.exit(1)
 
     version = sys.argv[1]
