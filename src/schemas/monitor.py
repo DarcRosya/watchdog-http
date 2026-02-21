@@ -1,7 +1,7 @@
-from typing import Optional
+from typing import Annotated, Optional
 from enum import Enum
 
-from pydantic import BaseModel, HttpUrl, Field, field_validator
+from pydantic import BaseModel, HttpUrl, Field, StringConstraints, field_validator
 
 
 class HttpMethod(str, Enum):
@@ -18,7 +18,9 @@ class HttpMethod(str, Enum):
 
 class MonitorCreate(BaseModel):
     url: HttpUrl
-    name: Optional[str] = None
+    name: Optional[
+        Annotated[str, StringConstraints(max_length=50, strip_whitespace=True)]
+    ] = None
 
     # ge=60 — greater or equal 60
     interval: int = Field(
@@ -50,7 +52,9 @@ class MonitorResponse(MonitorCreate):
 
 
 class MonitorUpdate(BaseModel):
-    name: Optional[str] = Field(None, max_length=50, description="Monitor display name")
+    name: Optional[
+        Annotated[str, StringConstraints(max_length=50, strip_whitespace=True)]
+    ] = None
     url: Optional[HttpUrl] = Field(None, description="URL to monitor")
     method: Optional[HttpMethod] = Field(None, description="HTTP request method")
     headers: Optional[dict[str, str]] = Field(None, description="Custom HTTP headers")

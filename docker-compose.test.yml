@@ -1,0 +1,37 @@
+# Isolated infrastructure for running tests.
+# Uses different ports so it can coexist with the main stack without touching
+# any production data or volumes.
+#
+# Start:  docker compose -f docker-compose.test.yml up -d
+# Stop:   docker compose -f docker-compose.test.yml down -v
+
+services:
+  test-database:
+    image: timescale/timescaledb:latest-pg14
+    container_name: watchdog_test_db
+    environment:
+      POSTGRES_USER: ${DB__USER}
+      POSTGRES_PASSWORD: ${DB__PASS}
+      POSTGRES_DB: watchdog_test
+    ports:
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data   # data lives only in RAM, gone on stop
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB__USER} -d watchdog_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  test-redis:
+    image: redis:7-alpine
+    container_name: watchdog_test_redis
+    ports:
+      - "127.0.0.1:6380:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

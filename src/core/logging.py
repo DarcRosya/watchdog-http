@@ -58,7 +58,8 @@ def configure_logging(
     root_logger.addHandler(console_handler)
 
     if enable_file_logging:
-        log_dir = Path("logs")
+        project_root = Path(__file__).resolve().parent.parent.parent
+        log_dir = project_root / "logs"
         log_dir.mkdir(exist_ok=True)
 
         json_formatter = structlog.stdlib.ProcessorFormatter(

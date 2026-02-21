@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Watchdog HTTP Monitoring Service",
-    version="1.9.5",
+    version="1.9.7",
     description="""
     Watchdog is an autonomous, asynchronous web monitoring system.
     It performs background health checks on target APIs and websites,
@@ -48,8 +48,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(users.router, prefix="/api/v1")
-app.include_router(monitors.router, prefix="/api/v1")
+app.include_router(users.router)
+app.include_router(monitors.router)
 
 
 @app.get("/health", tags=["System"])

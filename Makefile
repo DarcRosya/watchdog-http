@@ -1,4 +1,4 @@
-.PHONY: help install lock update test lint format check clean docker-up docker-down docker-build migrate upgrade downgrade pre-commit commit amend sync-version
+.PHONY: help install lock update test lint format check clean docker-up docker-down docker-build migrate upgrade downgrade pre-commit commit amend sync-version test-infra-up test-infra-down
 
 # Colors for output
 BLUE := \033[0;34m
@@ -46,13 +46,43 @@ format: ## Format code with black
 	cd ui && poetry run black .
 	@printf "$(GREEN)✓ Code formatted$(NC)\n"
 
-# test: ## Run tests with pytest
-#	@echo "$(BLUE)Running tests...$(NC)"
-#	cd src && poetry run pytest -v
-#	@echo "$(GREEN)✓ Tests complete$(NC)"
-
 check: format lint ## Run all checks (format + lint)
 	@printf "$(GREEN)✓ All checks passed$(NC)\n"
+
+## Testing
+
+test: ## Run all tests (requires test infra: make test-infra-up)
+	@printf "$(BLUE)Running all tests...$(NC)\n"
+	cd src && poetry run pytest tests
+	@printf "$(GREEN)✓ Tests complete$(NC)\n"
+
+test-infra-up: ## Start isolated test containers (postgres:5433, redis:6380)
+	@printf "$(BLUE)Starting test infrastructure...$(NC)\n"
+	docker compose -f docker-compose.test.yml --env-file .env.test up -d
+	@printf "$(BLUE)Waiting for containers to become healthy...$(NC)\n"
+	@for i in $$(seq 1 20); do \
+		db_status=$$(docker inspect --format='{{.State.Health.Status}}' watchdog_test_db 2>/dev/null); \
+		redis_status=$$(docker inspect --format='{{.State.Health.Status}}' watchdog_test_redis 2>/dev/null); \
+		if [ "$$db_status" = "healthy" ] && [ "$$redis_status" = "healthy" ]; then \
+			printf "$(GREEN)✓ Test infrastructure ready (postgres:5433, redis:6380)$(NC)\n"; \
+			exit 0; \
+		fi; \
+		printf "  waiting... db=$$db_status redis=$$redis_status\n"; \
+		sleep 2; \
+	done; \
+	printf "$(RED)✗ Timeout waiting for test infrastructure$(NC)\n"; exit 1
+
+test-infra-down: ## Stop and remove isolated test containers (data is discarded)
+	@printf "$(BLUE)Stopping test infrastructure...$(NC)\n"
+	docker compose -f docker-compose.test.yml down -v
+	@printf "$(GREEN)✓ Test infrastructure stopped$(NC)\n"
+
+test-cov: ## Run tests with coverage report
+	@printf "$(BLUE)Running tests with coverage...$(NC)\n"
+	cd src && poetry run pytest tests --cov=src --cov-report=term-missing --cov-report=html
+	@printf "$(GREEN)✓ Coverage report generated in htmlcov/$(NC)\n"
+
+
 
 ## Database
 
