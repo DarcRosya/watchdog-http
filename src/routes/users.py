@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 from src.core.database import DBSession
 from src.core.dependencies import CurrentUser
@@ -6,6 +6,7 @@ from src.core.logging import get_logger
 from src.schemas.user import UserResponse, UserUpdate
 from src.schemas.auth import AuthRequest, AuthResponse
 from src.services.user import UserService
+from src.telegram.bot import refresh_user_monitor_cache
 
 logger = get_logger("api")
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -67,10 +68,19 @@ async def get_current_user_info(user: CurrentUser):
     description="Update your profile settings. Set telegram_chat_id to null to unbind Telegram.",
 )
 async def update_current_user(
-    update_data: UserUpdate, user: CurrentUser, session: DBSession
+    update_data: UserUpdate,
+    background_tasks: BackgroundTasks,
+    user: CurrentUser,
+    session: DBSession,
 ):
     service = UserService(session)
     updated_user = await service.update_user(user.id, update_data)
+
+    update_dict = update_data.model_dump(exclude_unset=True)
+    if "telegram_chat_id" in update_dict:
+        background_tasks.add_task(
+            refresh_user_monitor_cache, updated_user.id, updated_user.telegram_chat_id
+        )
 
     logger.info(
         "user_profile_updated",

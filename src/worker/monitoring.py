@@ -72,6 +72,26 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
             username = user.username if user else "unknown"
             telegram_chat_id = user.telegram_chat_id if user else None
 
+            config = {
+                "url": monitor_url,
+                "method": monitor_method,
+                "headers": monitor_headers,
+                "body": monitor_body,
+                "is_active": monitor.is_active,
+                "name": monitor_name,
+                "user_id": monitor.user_id,
+                "username": username,
+                "telegram_chat_id": telegram_chat_id,
+            }
+            await redis.setex(config_key, 86400, json.dumps(config))
+            await redis.set(f"monitor:{monitor_id}:interval", monitor.interval)
+
+            logger.info(
+                "cache_repopulated_from_fallback",
+                monitor_id=monitor_id,
+                url=monitor_url,
+            )
+
     state_key = f"monitor:{monitor_id}:state"
     cached_state = await redis.get(state_key)
 

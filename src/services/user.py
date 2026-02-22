@@ -4,6 +4,7 @@ from src.core.logging import get_logger
 from src.models.user import User
 from src.repositories.user import UserRepository
 from src.schemas.user import UserUpdate
+from src.telegram.bot import refresh_user_monitor_cache
 
 logger = get_logger("service")
 

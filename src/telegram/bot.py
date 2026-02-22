@@ -1,11 +1,15 @@
+import json
+
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
 from aiogram.types import Message
+from arq import create_pool
 from sqlalchemy import select, update
 
 from src.config.settings import settings
 from src.core.database import async_session_factory
 from src.core.logging import configure_logging, get_logger
+from src.models.monitor import Monitor
 from src.models.user import User
 
 configure_logging(
@@ -16,6 +20,46 @@ configure_logging(
 )
 logger = get_logger("telegram")
 router = Router()
+
+
+async def refresh_user_monitor_cache(user_id: int, telegram_chat_id: int) -> None:
+    """Update Redis cache for all monitors of a user after Telegram linking."""
+    redis = await create_pool(settings.redis.arq_settings)
+    try:
+        async with async_session_factory() as session:
+            query = select(Monitor.id).where(
+                Monitor.user_id == user_id,
+                Monitor.is_active == True,  # noqa: E712
+            )
+            result = await session.execute(query)
+            monitor_ids = result.scalars().all()
+
+        if not monitor_ids:
+            logger.debug("cache_refresh_no_monitors", user_id=user_id)
+            return
+
+        updated = 0
+        for monitor_id in monitor_ids:
+            config_key = f"monitor:{monitor_id}:config"
+            config_raw = await redis.get(config_key)
+            if config_raw:
+                config = json.loads(config_raw)
+                config["telegram_chat_id"] = telegram_chat_id
+                ttl = await redis.ttl(config_key)
+                if ttl < 0:
+                    ttl = 86400
+                await redis.setex(config_key, ttl, json.dumps(config))
+                updated += 1
+
+        logger.info(
+            "monitor_cache_refreshed",
+            user_id=user_id,
+            telegram_chat_id=telegram_chat_id,
+            monitors_found=len(monitor_ids),
+            configs_updated=updated,
+        )
+    finally:
+        await redis.aclose()
 
 
 @router.message(Command("start"))
@@ -152,6 +196,16 @@ async def verify_username(message: Message) -> None:
             update(User).where(User.id == user.id).values(telegram_chat_id=telegram_id)
         )
         await session.commit()
+
+        # Refresh Redis cache so workers pick up the new telegram_chat_id
+        try:
+            await refresh_user_monitor_cache(user.id, telegram_id)
+        except Exception as e:
+            logger.error(
+                "cache_refresh_failed",
+                user_id=user.id,
+                error=str(e),
+            )
 
         logger.info(
             "telegram_linked",
