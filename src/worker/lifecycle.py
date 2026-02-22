@@ -34,9 +34,7 @@ async def hydrate_cache(ctx: dict[str, Any]):
     logger.info("hydrate_cache_started")
 
     lock_key = "hydrate_cache:lock"
-    lock_acquired = await redis.set(
-        lock_key, "1", expire=60, exist=redis.SET_IF_NOT_EXIST
-    )
+    lock_acquired = await redis.set(lock_key, "1", ex=60, nx=True)
 
     if not lock_acquired:
         logger.info(
@@ -136,8 +134,25 @@ async def hydrate_cache(ctx: dict[str, Any]):
         logger.debug("hydrate_cache_lock_released")
 
 
+async def startup_scheduler(ctx: dict[str, Any]) -> None:
+    """Startup for scheduler worker - initializes DB session and hydrates cache."""
+    logger.info(
+        "scheduler_startup",
+        database_host=settings.db.HOST,
+        database_port=settings.db.PORT,
+        redis_host=settings.redis.R_HOST,
+        redis_port=settings.redis.R_PORT,
+    )
+
+    ctx["session_factory"] = async_session_factory
+
+    await hydrate_cache(ctx)
+
+    logger.info("scheduler_worker_ready")
+
+
 async def startup_monitoring(ctx: dict[str, Any]) -> None:
-    """Startup for monitoring worker - initializes HTTP client and hydrates cache."""
+    """Startup for monitoring worker - initializes HTTP client and DB session."""
     logger.info(
         "monitoring_startup",
         database_host=settings.db.HOST,
@@ -153,8 +168,6 @@ async def startup_monitoring(ctx: dict[str, Any]) -> None:
     )
 
     ctx["session_factory"] = async_session_factory
-
-    await hydrate_cache(ctx)
 
     logger.info("monitoring_worker_ready")
 

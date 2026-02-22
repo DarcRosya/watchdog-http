@@ -234,6 +234,7 @@ class AlertingWorkerSettings:
     - Sending recovery alerts
     """
 
+    queue_name = "arq:alerting"
     redis_settings = settings.redis.arq_settings
 
     functions = [

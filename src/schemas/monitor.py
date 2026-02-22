@@ -1,7 +1,14 @@
 from typing import Annotated, Optional
 from enum import Enum
 
-from pydantic import BaseModel, HttpUrl, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    HttpUrl,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 
 class HttpMethod(str, Enum):
@@ -21,6 +28,12 @@ class MonitorCreate(BaseModel):
     name: Optional[
         Annotated[str, StringConstraints(max_length=50, strip_whitespace=True)]
     ] = None
+    headers: Optional[dict[str, str]] = Field(
+        None, description="Custom HTTP headers for the probe"
+    )
+    body: Optional[str] = Field(
+        None, description="Request body for POST/PUT/PATCH/DELETE requests"
+    )
 
     # ge=60 — greater or equal 60
     interval: int = Field(
@@ -47,6 +60,8 @@ class MonitorCreate(BaseModel):
 
 
 class MonitorResponse(MonitorCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     is_active: bool
 

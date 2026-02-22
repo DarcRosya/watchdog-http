@@ -131,10 +131,20 @@ class TestMonitorServiceUnit:
         service = MonitorService(session=AsyncMock(), redis=None)
         monitors_data = [
             MonitorCreate(
-                url="https://example1.com", name="M1", interval=60, method="GET"
+                url="https://example1.com",
+                name="M1",
+                interval=60,
+                method="GET",
+                headers=None,
+                body=None,
             ),
             MonitorCreate(
-                url="https://example2.com", name="M2", interval=60, method="GET"
+                url="https://example2.com",
+                name="M2",
+                interval=60,
+                method="GET",
+                headers=None,
+                body=None,
             ),
         ]
 
@@ -171,6 +181,8 @@ class TestMonitorServiceUnit:
                 name="Unavailable",
                 interval=60,
                 method="GET",
+                headers=None,
+                body=None,
             ),
         ]
 
@@ -204,7 +216,12 @@ class TestMonitorServiceUnit:
         service = MonitorService(session=AsyncMock(), redis=None)
         monitors_data = [
             MonitorCreate(
-                url="https://example.com", name="M", interval=60, method="GET"
+                url="https://example.com",
+                name="M",
+                interval=60,
+                method="GET",
+                headers=None,
+                body=None,
             ),
         ]
 

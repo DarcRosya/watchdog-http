@@ -30,13 +30,10 @@ class VersionManager:
 
     def sync_readme(self, version: str) -> bool:
         if not self.readme_path.exists():
-            print(f"⚠️  README.md not found, skipping")
+            print("⚠️  README.md not found, skipping")
             return False
 
         content = self.readme_path.read_text()
-        # Update shields.io badge version like:
-        # ![Version](https://img.shields.io/badge/version-1.9.7-blue?style=for-the-badge)
-        # replace the numeric part after "badge/version-"
         new_content = re.sub(
             r"(badge/version-)(\d+\.\d+\.\d+)",
             rf"\g<1>{version}",
@@ -51,7 +48,7 @@ class VersionManager:
 
     def sync_pyproject(self, version: str) -> bool:
         if not self.pyproject_path.exists():
-            print(f"⚠️  pyproject.toml not found, skipping")
+            print("⚠️  pyproject.toml not found, skipping")
             return False
 
         content = self.pyproject_path.read_text()
@@ -70,7 +67,7 @@ class VersionManager:
 
     def sync_main(self, version: str) -> bool:
         if not self.main_path.exists():
-            print(f"⚠️  main.py not found, skipping")
+            print("⚠️  main.py not found, skipping")
             return False
 
         content = self.main_path.read_text()

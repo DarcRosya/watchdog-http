@@ -8,7 +8,8 @@ import httpx
 import pytest
 from httpx import Response
 
-from src.worker.monitoring import check_monitor, scheduler
+from src.worker.monitoring import check_monitor
+from src.worker.scheduler import scheduler
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -366,6 +367,74 @@ class TestCheckMonitor:
         assert result["status"] == "skipped"
         assert result["reason"] == "paused"
 
+    async def test_sends_headers_and_body_for_post(self):
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(method="POST", headers={"X-Test": "1"}, body="payload")
+                ).encode(),
+            }
+        )
+        factory, _ = _make_session_factory()
+        client = _http_client(200)
+        ctx = _ctx(redis, client, factory)
+
+        result = await check_monitor(ctx, monitor_id=monitor_id)
+
+        assert result["status"] == "completed"
+        # Ensure request was called with headers and content
+        client.request.assert_awaited()
+        _, kwargs = client.request.call_args
+        assert kwargs["method"] == "POST"
+        assert kwargs["headers"]["X-Test"] == "1"
+        assert kwargs["content"] == b"payload"
+
+    async def test_get_with_headers_no_body(self):
+        monitor_id = 2
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(method="GET", headers={"X-Foo": "bar"}, body=None)
+                ).encode(),
+            }
+        )
+        factory, _ = _make_session_factory()
+        client = _http_client(200)
+        ctx = _ctx(redis, client, factory)
+
+        result = await check_monitor(ctx, monitor_id=monitor_id)
+
+        assert result["status"] == "completed"
+        client.request.assert_awaited()
+        _, kwargs = client.request.call_args
+        assert kwargs["method"] == "GET"
+        assert kwargs["headers"]["X-Foo"] == "bar"
+        assert "content" not in kwargs
+
+    async def test_local_protocol_error_queues_request_type(self):
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(_config()).encode(),
+                f"monitor:{monitor_id}:state": b"1",
+            }
+        )
+        factory, _ = _make_session_factory()
+        ctx = _ctx(
+            redis,
+            _failing_http_client(httpx.LocalProtocolError("bad headers")),
+            factory,
+        )
+
+        result = await check_monitor(ctx, monitor_id=monitor_id)
+
+        assert result["is_success"] is False
+        redis.enqueue_job.assert_called_once()
+        args = redis.enqueue_job.call_args[0]
+        assert args[0] == "send_alert_exception"
+        assert args[6] == "request"
+
 
 # ---------------------------------------------------------------------------
 # Tests: scheduler
@@ -430,7 +499,9 @@ class TestScheduler:
 
         await scheduler(ctx)
 
-        redis.enqueue_job.assert_called_once_with("check_monitor", 5)
+        redis.enqueue_job.assert_called_once_with(
+            "check_monitor", 5, _queue_name="arq:monitoring"
+        )
         redis.zadd.assert_called_once()
 
     async def test_removes_zombie_task_when_monitor_not_in_db(self):
@@ -462,5 +533,7 @@ class TestScheduler:
 
         # The current-cycle job was already dispatched (job is enqueued before
         # interval/DB lookup); the monitor must be removed from future scheduling.
-        redis.enqueue_job.assert_called_once_with("check_monitor", 42)
+        redis.enqueue_job.assert_called_once_with(
+            "check_monitor", 42, _queue_name="arq:monitoring"
+        )
         redis.zrem.assert_called_once_with("scheduler", "42")

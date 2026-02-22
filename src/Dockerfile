@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -24,10 +24,20 @@ WORKDIR /app
 
 COPY pyproject.toml poetry.lock ./
 
+# ── production image ──────────────────────────────────────────────────────────
+FROM base AS prod
 RUN poetry install --no-root --no-interaction --no-ansi --without dev\
     && rm -rf $POETRY_CACHE_DIR
 
 COPY . .
 
-# default
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ── development image (includes dev deps: watchfiles, pytest, mypy …) ─────────
+FROM base AS dev
+RUN poetry install --no-root --no-interaction --no-ansi \
+    && rm -rf $POETRY_CACHE_DIR
+
+COPY . .
+
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

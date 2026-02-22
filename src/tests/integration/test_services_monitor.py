@@ -94,10 +94,20 @@ class TestMonitorServiceIntegration:
         service = MonitorService(db_session, redis_client)
         monitors_data = [
             MonitorCreate(
-                url="https://bulk1.com", name="Monitor 1", interval=60, method="GET"  # type: ignore[arg-type]
+                url="https://bulk1.com",  # type: ignore[arg-type]
+                name="Monitor 1",
+                interval=60,
+                method="GET",  # type: ignore[arg-type]
+                headers=None,
+                body=None,
             ),
             MonitorCreate(
-                url="https://bulk2.com", name="Monitor 2", interval=120, method="GET"  # type: ignore[arg-type]
+                url="https://bulk2.com",  # type: ignore[arg-type]
+                name="Monitor 2",
+                interval=120,
+                method="GET",  # type: ignore[arg-type]
+                headers=None,
+                body=None,
             ),
         ]
 
@@ -139,6 +149,8 @@ class TestMonitorServiceIntegration:
                 name="Unavailable Monitor",
                 interval=60,
                 method="GET",  # type: ignore[arg-type]
+                headers=None,
+                body=None,
             ),
         ]
 

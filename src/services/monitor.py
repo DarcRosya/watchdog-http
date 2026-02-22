@@ -79,6 +79,8 @@ class MonitorService:
                 name=data.name or str(data.url),
                 interval=data.interval,
                 method=data.method,
+                headers=data.headers or None,
+                body=data.body or None,
                 is_active=True,
             )
             new_monitors.append(monitor)

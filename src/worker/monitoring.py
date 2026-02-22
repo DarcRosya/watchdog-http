@@ -3,8 +3,6 @@ from typing import Any
 import json
 
 import httpx
-from arq import cron
-
 from src.config.settings import settings
 from src.models.monitor import Monitor
 from src.models.resultlog import ResultLog
@@ -13,6 +11,9 @@ from src.worker.lifecycle import (
     shutdown,
     logger,
 )
+
+# Queue name constants for cross-worker job routing
+ALERTING_QUEUE = "arq:alerting"
 
 # =============================================================================
 # TASK: Check single monitor
@@ -92,13 +93,29 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     is_success = False
     error_message = None
 
+    request_kwargs = {
+        "method": monitor_method,
+        "url": monitor_url,
+        "headers": monitor_headers,
+    }
+
+    if (
+        monitor_body
+        and isinstance(monitor_method, str)
+        and monitor_method.upper() in ["POST", "PUT", "PATCH", "DELETE"]
+    ):
+        if isinstance(monitor_body, (bytes, bytearray)):
+            request_kwargs["content"] = monitor_body
+        else:
+            request_kwargs["content"] = (
+                monitor_body.encode("utf-8")
+                if isinstance(monitor_body, str)
+                else str(monitor_body).encode("utf-8")
+            )
+
     try:
         # body and head placeholder
-        response = await http_client.request(
-            method=monitor_method,
-            url=monitor_url,
-            headers=monitor_headers,
-        )
+        response = await http_client.request(**request_kwargs)
 
         status_code = response.status_code
         is_success = 200 <= status_code < 400
@@ -123,6 +140,16 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
         alert_type = "request"
         logger.error(
             "check_request_error",
+            monitor_id=monitor_id,
+            url=monitor_url,
+            error=str(e),
+        )
+
+    except httpx.LocalProtocolError as e:
+        error_message = f"Protocol error (check headers/body): {str(e)}"
+        alert_type = "request"
+        logger.error(
+            "check_protocol_error",
             monitor_id=monitor_id,
             url=monitor_url,
             error=str(e),
@@ -198,6 +225,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                     monitor_id,
                     monitor_name,
                     monitor_url,
+                    _queue_name=ALERTING_QUEUE,
                 )
                 logger.info(
                     "recovery_alert_queued", monitor_id=monitor_id, url=monitor_url
@@ -245,6 +273,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                     monitor_url,
                     alert_type,
                     error_message,
+                    _queue_name=ALERTING_QUEUE,
                 )
                 logger.info(
                     "alert_queued",
@@ -264,6 +293,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
                     monitor_url,
                     status_code,
                     duration_ms,
+                    _queue_name=ALERTING_QUEUE,
                 )
                 logger.info(
                     "alert_queued",
@@ -309,112 +339,21 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     }
 
 
-# =============================================================================
-# CRON JOB: Scheduler
-# =============================================================================
-
-
-async def scheduler(ctx: dict[str, Any]) -> None:
-    """Scheduler that processes due monitors and enqueues check tasks."""
-    redis = ctx["redis"]
-    session_factory = ctx["session_factory"]
-
-    logger.debug("scheduler_started", timestamp=datetime.now(timezone.utc).isoformat())
-
-    now_ts = datetime.now(timezone.utc).timestamp()
-
-    # Check total backlog BEFORE limiting to 100 (backlog monitoring)
-    total_due = await redis.zcount("scheduler", "-inf", now_ts)
-
-    if total_due > 100:
-        logger.warning(
-            "scheduler_backlog_high",
-            total_due=total_due,
-            processing_limit=100,
-            backlog=total_due - 100,
-        )
-
-    due_monitors = await redis.zrangebyscore(
-        "scheduler", min="-inf", max=now_ts, start=0, num=100
-    )
-
-    if not due_monitors:
-        logger.debug("scheduler_idle")
-        return
-
-    logger.info("scheduler_processing", count=len(due_monitors))
-
-    for monitor_id_raw in due_monitors:
-        monitor_id = int(monitor_id_raw)
-
-        await redis.enqueue_job("check_monitor", monitor_id)
-
-        interval_key = f"monitor:{monitor_id}:interval"
-        interval_raw = await redis.get(interval_key)
-
-        if interval_raw:
-            interval = int(interval_raw)
-            next_run = now_ts + interval
-            await redis.zadd("scheduler", {str(monitor_id): next_run})
-        else:
-            # Fallback to DB - wrap in try-except to prevent one monitor's DB error
-            # from killing the entire scheduler loop
-            try:
-                async with session_factory() as session:
-                    monitor = await session.get(Monitor, monitor_id)
-                    if not monitor:
-                        logger.warning(
-                            "scheduler_zombie_task_removed", monitor_id=monitor_id
-                        )
-                        await redis.zrem("scheduler", str(monitor_id))
-                        await redis.delete(interval_key)
-                        continue
-
-                    if not monitor.is_active:
-                        logger.info(
-                            "scheduler_paused_task_removed", monitor_id=monitor_id
-                        )
-                        await redis.zrem("scheduler", str(monitor_id))
-                        continue
-
-                    await redis.set(interval_key, monitor.interval)
-
-                    next_run = now_ts + monitor.interval
-                    await redis.zadd("scheduler", {str(monitor_id): next_run})
-            except Exception as e:
-                logger.error(
-                    "scheduler_db_error",
-                    monitor_id=monitor_id,
-                    error=str(e),
-                    action="skipping_monitor",
-                )
-                continue
-
-    logger.debug("scheduler_completed", queued_count=len(due_monitors))
-
-
 class MonitoringWorkerSettings:
     """
     Monitoring Worker configuration for ARQ.
 
     This worker handles:
     - Checking monitors (HTTP requests)
-    - Scheduler cron job (enqueues monitors every 15 seconds)
+    - Enqueuing alerts to alerting worker queue
     """
 
+    queue_name = "arq:monitoring"
     redis_settings = settings.redis.arq_settings
 
-    functions = [
-        check_monitor,
-    ]
+    functions = [check_monitor]
 
-    cron_jobs = [
-        cron(
-            scheduler,
-            second={0, 15, 30, 45},  # Every 15 seconds for better UX
-            unique=True,  # Prevent overlapping scheduler runs
-        )
-    ]
+    cron_jobs: list = []
 
     on_startup = startup_monitoring
     on_shutdown = shutdown

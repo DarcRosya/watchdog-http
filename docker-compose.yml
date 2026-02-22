@@ -85,6 +85,33 @@ services:
         reservations:
           memory: 128M
 
+  scheduler-worker:
+    build: ./src
+    container_name: watchdog_scheduler_worker
+    command: arq src.worker.scheduler.SchedulerWorkerSettings
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB__HOST: database
+      REDIS__R_HOST: redis
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    volumes:
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          memory: 64M
+
   monitoring-worker:
     build: ./src
     container_name: watchdog_monitoring_worker
