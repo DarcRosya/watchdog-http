@@ -41,6 +41,21 @@ services:
       timeout: 5s
       retries: 5
 
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrator
+    container_name: watchdog_migrator
+    command: alembic upgrade head
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      - DB__HOST=database
+    depends_on:
+      database:
+        condition: service_healthy
+
   app:
     build: ./src
     container_name: watchdog_app
@@ -58,6 +73,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      migrator:
+        condition: service_completed_successfully
     volumes:
       - ./logs:/app/logs
     deploy:
@@ -83,6 +100,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     volumes:
       - ./logs:/app/logs
     deploy:
@@ -108,6 +127,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     volumes:
       - ./logs:/app/logs
     deploy:
