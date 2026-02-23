@@ -38,18 +38,36 @@ async def refresh_user_monitor_cache(user_id: int, telegram_chat_id: int) -> Non
             logger.debug("cache_refresh_no_monitors", user_id=user_id)
             return
 
+        async with redis.pipeline() as pipe:
+            for monitor_id in monitor_ids:
+                config_key = f"monitor:{monitor_id}:config"
+                pipe.get(config_key)
+                pipe.ttl(config_key)
+
+            # [config1, ttl1, config2, ttl2, ...]
+            # [index0, index1, index2, index3, ...]
+            read_results = await pipe.execute()
+
         updated = 0
-        for monitor_id in monitor_ids:
-            config_key = f"monitor:{monitor_id}:config"
-            config_raw = await redis.get(config_key)
-            if config_raw:
-                config = json.loads(config_raw)
-                config["telegram_chat_id"] = telegram_chat_id
-                ttl = await redis.ttl(config_key)
-                if ttl < 0:
-                    ttl = 86400
-                await redis.setex(config_key, ttl, json.dumps(config))
-                updated += 1
+
+        async with redis.pipeline() as pipe:
+            for i, monitor_id in enumerate(monitor_ids):
+                config_raw = read_results[i * 2]  # Even indexes are configs
+                ttl = read_results[i * 2 + 1]  # Odd indexes are TTL
+
+                if config_raw:
+                    config = json.loads(config_raw)
+                    config["telegram_chat_id"] = telegram_chat_id
+
+                    if ttl < 0:
+                        ttl = 86400
+
+                    config_key = f"monitor:{monitor_id}:config"
+                    pipe.setex(config_key, ttl, json.dumps(config))
+                    updated += 1
+
+            if updated > 0:
+                await pipe.execute()
 
         logger.info(
             "monitor_cache_refreshed",
