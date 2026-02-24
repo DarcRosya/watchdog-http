@@ -224,6 +224,64 @@ async def send_alert_recovery(
     }
 
 
+# =============================================================================
+# TASK: Send SSL certificate expiry alert
+# =============================================================================
+
+
+async def send_alert_ssl_expiry(
+    ctx: dict[str, Any],
+    chat_id: int,
+    username: str,
+    monitor_id: int,
+    monitor_name: str,
+    monitor_url: str,
+    days_left: int,
+) -> dict[str, Any]:
+    """Send alert when SSL certificate is expiring within 7 days."""
+    redis = ctx["redis"]
+
+    if not chat_id:
+        logger.info(
+            "ssl_alert_skipped_no_telegram",
+            user=username,
+            monitor_id=monitor_id,
+        )
+        return {"status": "skipped", "reason": "no_telegram"}
+
+    message = get_predefined_message(
+        alert_type=AlertType.SSL_EXPIRY,
+        monitor_name=monitor_name or "",
+        url=monitor_url,
+        days_left=days_left,
+    )
+
+    alert_metadata = {
+        "alert_type": "ssl_expiry",
+        "monitor_id": monitor_id,
+        "user": username,
+        "monitor_name": monitor_name,
+        "url": monitor_url,
+        "days_left": days_left,
+    }
+
+    await redis.enqueue_job(
+        "send_telegram_message",
+        chat_id,
+        message,
+        alert_metadata,
+    )
+
+    logger.info("alert_queued", **alert_metadata)
+
+    return {
+        "status": "queued",
+        "monitor_id": monitor_id,
+        "user": username,
+        "days_left": days_left,
+    }
+
+
 class AlertingWorkerSettings:
     """
     Alerting Worker configuration for ARQ.
@@ -232,6 +290,7 @@ class AlertingWorkerSettings:
     - Sending HTTP error alerts
     - Sending exception alerts (timeout, connection errors)
     - Sending recovery alerts
+    - Sending SSL certificate expiry alerts
     """
 
     queue_name = "arq:alerting"
@@ -242,6 +301,7 @@ class AlertingWorkerSettings:
         send_alert_http_error,
         send_alert_exception,
         send_alert_recovery,
+        send_alert_ssl_expiry,
     ]
 
     # No cron jobs - alerts are triggered by monitoring worker

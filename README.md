@@ -1,6 +1,6 @@
 # 🛡️ Watchdog HTTP
 
-![Version](https://img.shields.io/badge/version-2.1.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.1.2-blue?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.128%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![ARQ](https://img.shields.io/badge/ARQ-Workers-DC382D?style=for-the-badge&logo=redis&logoColor=white)

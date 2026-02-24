@@ -6,6 +6,7 @@ from src.worker.alerting import (
     send_alert_exception,
     send_alert_http_error,
     send_alert_recovery,
+    send_alert_ssl_expiry,
     send_telegram_message,
 )
 
@@ -282,3 +283,103 @@ class TestSendAlertRecovery:
         assert result["status"] == "skipped"
         assert result["reason"] == "no_telegram"
         redis.enqueue_job.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests: send_alert_ssl_expiry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSendAlertSslExpiry:
+
+    async def test_queues_ssl_expiry_message(self):
+        redis = AsyncMock()
+        ctx = {"redis": redis}
+
+        result = await send_alert_ssl_expiry(
+            ctx,
+            chat_id=55,
+            username="dave",
+            monitor_id=7,
+            monitor_name="Secure API",
+            monitor_url="https://secure-api.example.com",
+            days_left=5,
+        )
+
+        assert result["status"] == "queued"
+        assert result["monitor_id"] == 7
+        assert result["days_left"] == 5
+        redis.enqueue_job.assert_called_once()
+        assert redis.enqueue_job.call_args[0][0] == "send_telegram_message"
+
+    async def test_message_contains_days_left_and_url(self):
+        redis = AsyncMock()
+        ctx = {"redis": redis}
+
+        await send_alert_ssl_expiry(
+            ctx,
+            chat_id=55,
+            username="dave",
+            monitor_id=7,
+            monitor_name="My Site",
+            monitor_url="https://my-site.com",
+            days_left=3,
+        )
+
+        message = redis.enqueue_job.call_args[0][2]
+        assert "3" in message
+        assert "https://my-site.com" in message
+        assert "SSL" in message or "certificate" in message.lower()
+
+    async def test_skips_when_no_telegram_configured(self):
+        redis = AsyncMock()
+        ctx = {"redis": redis}
+
+        result = await send_alert_ssl_expiry(
+            ctx,
+            chat_id=None,
+            username="dave",
+            monitor_id=7,
+            monitor_name="Secure API",
+            monitor_url="https://example.com",
+            days_left=2,
+        )
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no_telegram"
+        redis.enqueue_job.assert_not_called()
+
+    async def test_skips_when_chat_id_is_zero(self):
+        redis = AsyncMock()
+        ctx = {"redis": redis}
+
+        result = await send_alert_ssl_expiry(
+            ctx,
+            chat_id=0,
+            username="dave",
+            monitor_id=7,
+            monitor_name="Site",
+            monitor_url="https://example.com",
+            days_left=1,
+        )
+
+        assert result["status"] == "skipped"
+        redis.enqueue_job.assert_not_called()
+
+    async def test_message_contains_monitor_name(self):
+        redis = AsyncMock()
+        ctx = {"redis": redis}
+
+        await send_alert_ssl_expiry(
+            ctx,
+            chat_id=55,
+            username="dave",
+            monitor_id=7,
+            monitor_name="Production Gateway",
+            monitor_url="https://gw.example.com",
+            days_left=1,
+        )
+
+        message = redis.enqueue_job.call_args[0][2]
+        assert "Production Gateway" in message

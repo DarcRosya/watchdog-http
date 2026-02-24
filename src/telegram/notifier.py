@@ -16,6 +16,7 @@ class AlertType(Enum):
     CONNECTION_ERROR = "connection"  # Cannot connect to host
     REQUEST_ERROR = "request"  # Other request failures
     RECOVERY = "recovery"  # Site is back online
+    SSL_EXPIRY = "ssl_expiry"  # SSL certificate expiring soon
 
 
 # HTTP status code error descriptions
@@ -166,6 +167,13 @@ PREDEFINED_MESSAGES = {
         "🔗 {url}\n\n"
         "The service is back online and responding normally."
     ),
+    AlertType.SSL_EXPIRY: (
+        "⚠️ <b>SSL Certificate Expiring Soon</b>\n\n"
+        "📍 {monitor_name}\n"
+        "🔗 {url}\n\n"
+        "⏳ Days remaining: <b>{days_left}</b>\n\n"
+        "Please renew the certificate to avoid service disruption."
+    ),
 }
 
 
@@ -176,6 +184,7 @@ def get_predefined_message(
     error: str | None = None,
     status_code: int | None = None,
     duration_ms: int | None = None,
+    days_left: int | None = None,
 ) -> str:
     """Get a pre-formatted message for quick notifications."""
     template = PREDEFINED_MESSAGES.get(alert_type, "⚠️ Monitoring issue {url}")
@@ -193,4 +202,5 @@ def get_predefined_message(
         status_code=status_code or "?",
         duration_part=duration_part,
         error=error or "Unknown Error",
+        days_left=days_left if days_left is not None else "?",
     )

@@ -1,9 +1,10 @@
 import datetime
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock, MagicMock
 
 import pytest
 
 from src.utils.random_generate import generate_api_key, generate_random_username
+from src.utils.ssl_checker import get_ssl_days_remaining
 from src.utils.time import get_next_aligned_time
 
 
@@ -97,3 +98,111 @@ class TestTimeUtils:
             2026, 2, 21, 14, 28, 0, tzinfo=datetime.timezone.utc
         )
         assert result == expected_time
+
+
+@pytest.mark.unit
+class TestSslChecker:
+
+    async def test_returns_none_for_http_url(self):
+        result = await get_ssl_days_remaining("http://example.com")
+
+        assert result is None
+
+    async def test_returns_none_for_url_without_scheme(self):
+        result = await get_ssl_days_remaining("ftp://example.com")
+
+        assert result is None
+
+    @patch("src.utils.ssl_checker.asyncio.wait_for", new_callable=AsyncMock)
+    async def test_returns_days_remaining_for_valid_cert(self, mock_wait_for):
+        # Simulate a certificate expiring in 30 days
+        expire_date = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+            days=30
+        )
+        expire_str = expire_date.strftime("%b %d %H:%M:%S %Y GMT")
+
+        mock_writer = MagicMock()
+        mock_writer.get_extra_info.return_value = {"notAfter": expire_str}
+        mock_writer.close = MagicMock()
+        mock_writer.wait_closed = AsyncMock()
+
+        mock_reader = MagicMock()
+        mock_wait_for.return_value = (mock_reader, mock_writer)
+
+        result = await get_ssl_days_remaining("https://example.com")
+
+        assert result is not None
+        assert 29 <= result <= 30
+
+    @patch("src.utils.ssl_checker.asyncio.wait_for", new_callable=AsyncMock)
+    async def test_returns_negative_days_for_expired_cert(self, mock_wait_for):
+        expire_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            days=5
+        )
+        expire_str = expire_date.strftime("%b %d %H:%M:%S %Y GMT")
+
+        mock_writer = MagicMock()
+        mock_writer.get_extra_info.return_value = {"notAfter": expire_str}
+        mock_writer.close = MagicMock()
+        mock_writer.wait_closed = AsyncMock()
+
+        mock_reader = MagicMock()
+        mock_wait_for.return_value = (mock_reader, mock_writer)
+
+        result = await get_ssl_days_remaining("https://expired.example.com")
+
+        assert result is not None
+        assert result < 0
+
+    @patch("src.utils.ssl_checker.asyncio.wait_for", new_callable=AsyncMock)
+    async def test_returns_none_when_cert_has_no_notafter(self, mock_wait_for):
+        mock_writer = MagicMock()
+        mock_writer.get_extra_info.return_value = {}  # No notAfter
+        mock_writer.close = MagicMock()
+        mock_writer.wait_closed = AsyncMock()
+
+        mock_reader = MagicMock()
+        mock_wait_for.return_value = (mock_reader, mock_writer)
+
+        result = await get_ssl_days_remaining("https://example.com")
+
+        assert result is None
+
+    @patch("src.utils.ssl_checker.asyncio.wait_for", new_callable=AsyncMock)
+    async def test_returns_none_when_connection_fails(self, mock_wait_for):
+        mock_wait_for.side_effect = ConnectionRefusedError("refused")
+
+        result = await get_ssl_days_remaining("https://down.example.com")
+
+        assert result is None
+
+    @patch("src.utils.ssl_checker.asyncio.wait_for", new_callable=AsyncMock)
+    async def test_returns_none_on_timeout(self, mock_wait_for):
+        import asyncio
+
+        mock_wait_for.side_effect = asyncio.TimeoutError()
+
+        result = await get_ssl_days_remaining("https://slow.example.com")
+
+        assert result is None
+
+    @patch("src.utils.ssl_checker.asyncio.wait_for", new_callable=AsyncMock)
+    async def test_uses_custom_port_from_url(self, mock_wait_for):
+        expire_date = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+            days=15
+        )
+        expire_str = expire_date.strftime("%b %d %H:%M:%S %Y GMT")
+
+        mock_writer = MagicMock()
+        mock_writer.get_extra_info.return_value = {"notAfter": expire_str}
+        mock_writer.close = MagicMock()
+        mock_writer.wait_closed = AsyncMock()
+
+        mock_reader = MagicMock()
+        mock_wait_for.return_value = (mock_reader, mock_writer)
+
+        result = await get_ssl_days_remaining("https://example.com:8443/path")
+
+        assert result is not None
+        assert 14 <= result <= 15
+        mock_wait_for.assert_awaited_once()

@@ -6,6 +6,7 @@ import httpx
 from src.config.settings import settings
 from src.models.monitor import Monitor
 from src.models.resultlog import ResultLog
+from src.utils.ssl_checker import get_ssl_days_remaining
 from src.worker.lifecycle import (
     startup_monitoring,
     shutdown,
@@ -196,6 +197,47 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
 
     await redis.setex(state_key, 86400, "1" if is_success else "0")
     await redis.setex(timestamp_key, 86400, str(int(start_time.timestamp())))
+
+    # =================================================================
+    # SSL certificate expiry check (once per day per monitor, HTTPS only)
+    # =================================================================
+    if monitor_url.startswith("https"):
+        ssl_check_timer_key = f"monitor:{monitor_id}:ssl_checked_today"
+
+        if not await redis.exists(ssl_check_timer_key):
+            await redis.setex(ssl_check_timer_key, 86400, "1")
+
+            days_left = await get_ssl_days_remaining(monitor_url)
+
+            if days_left is not None and days_left <= 7:
+                ssl_alert_sent_key = f"monitor:{monitor_id}:ssl_alert_sent"
+
+                if not await redis.exists(ssl_alert_sent_key):
+                    await redis.setex(ssl_alert_sent_key, 86400, "1")
+
+                    await redis.enqueue_job(
+                        "send_alert_ssl_expiry",
+                        telegram_chat_id,
+                        username,
+                        monitor_id,
+                        monitor_name,
+                        monitor_url,
+                        days_left,
+                        _queue_name=ALERTING_QUEUE,
+                    )
+                    logger.warning(
+                        "ssl_expiry_alert_queued",
+                        monitor_id=monitor_id,
+                        url=monitor_url,
+                        days_left=days_left,
+                    )
+            elif days_left is not None:
+                logger.debug(
+                    "ssl_certificate_ok",
+                    monitor_id=monitor_id,
+                    url=monitor_url,
+                    days_left=days_left,
+                )
 
     failure_key = f"monitor:{monitor_id}:failures"
 

@@ -2,7 +2,7 @@ import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -51,10 +51,14 @@ def _make_redis(initial: dict | None = None) -> AsyncMock:
         for k in keys:
             store.pop(k, None)
 
+    async def _exists(key):
+        return 1 if key in store else 0
+
     redis.get = AsyncMock(side_effect=_get)
     redis.setex = AsyncMock(side_effect=_setex)
     redis.set = AsyncMock(side_effect=_set_cmd)
     redis.delete = AsyncMock(side_effect=_delete)
+    redis.exists = AsyncMock(side_effect=_exists)
     redis.zscore = AsyncMock(return_value=None)
     redis.zadd = AsyncMock()
     redis.zrem = AsyncMock()
@@ -434,6 +438,153 @@ class TestCheckMonitor:
         args = redis.enqueue_job.call_args[0]
         assert args[0] == "send_alert_exception"
         assert args[6] == "request"
+
+    # ------------------------------------------------------------------
+    # SSL certificate expiry checks
+    # ------------------------------------------------------------------
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_ssl_alert_queued_when_cert_expires_within_7_days(self, mock_ssl):
+        mock_ssl.return_value = 5
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(url="https://example.com")
+                ).encode(),
+            }
+        )
+        factory, _ = _make_session_factory()
+        ctx = _ctx(redis, _http_client(200), factory)
+
+        await check_monitor(ctx, monitor_id=monitor_id)
+
+        mock_ssl.assert_awaited_once_with("https://example.com")
+        # Find the ssl alert enqueue call among all calls
+        ssl_calls = [
+            c
+            for c in redis.enqueue_job.call_args_list
+            if c[0][0] == "send_alert_ssl_expiry"
+        ]
+        assert len(ssl_calls) == 1
+        args = ssl_calls[0][0]
+        assert args[6] == 5  # days_left
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_ssl_no_alert_when_cert_has_more_than_7_days(self, mock_ssl):
+        mock_ssl.return_value = 30
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(url="https://example.com")
+                ).encode(),
+            }
+        )
+        factory, _ = _make_session_factory()
+        ctx = _ctx(redis, _http_client(200), factory)
+
+        await check_monitor(ctx, monitor_id=monitor_id)
+
+        mock_ssl.assert_awaited_once()
+        # No SSL alert should be enqueued
+        ssl_calls = [
+            c
+            for c in redis.enqueue_job.call_args_list
+            if c[0][0] == "send_alert_ssl_expiry"
+        ]
+        assert len(ssl_calls) == 0
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_ssl_check_skipped_for_http_urls(self, mock_ssl):
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(url="http://example.com")
+                ).encode(),
+            }
+        )
+        factory, _ = _make_session_factory()
+        ctx = _ctx(redis, _http_client(200), factory)
+
+        await check_monitor(ctx, monitor_id=monitor_id)
+
+        mock_ssl.assert_not_awaited()
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_ssl_check_runs_only_once_per_day(self, mock_ssl):
+        """Second call within 24h should skip the SSL check (timer key exists)."""
+        mock_ssl.return_value = 3
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(url="https://example.com")
+                ).encode(),
+                # Timer key already set — means we checked today
+                f"monitor:{monitor_id}:ssl_checked_today": b"1",
+            }
+        )
+        factory, _ = _make_session_factory()
+        ctx = _ctx(redis, _http_client(200), factory)
+
+        await check_monitor(ctx, monitor_id=monitor_id)
+
+        mock_ssl.assert_not_awaited()
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_ssl_alert_not_duplicated_within_24h(self, mock_ssl):
+        """If ssl_alert_sent key exists, no second alert is queued."""
+        mock_ssl.return_value = 2
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(url="https://example.com")
+                ).encode(),
+                # No ssl_checked_today — will run check
+                # But alert already sent today
+                f"monitor:{monitor_id}:ssl_alert_sent": b"1",
+            }
+        )
+        factory, _ = _make_session_factory()
+        ctx = _ctx(redis, _http_client(200), factory)
+
+        await check_monitor(ctx, monitor_id=monitor_id)
+
+        mock_ssl.assert_awaited_once()
+        ssl_calls = [
+            c
+            for c in redis.enqueue_job.call_args_list
+            if c[0][0] == "send_alert_ssl_expiry"
+        ]
+        assert len(ssl_calls) == 0
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_ssl_check_handles_none_gracefully(self, mock_ssl):
+        """When get_ssl_days_remaining returns None (error/not HTTPS), no alert."""
+        mock_ssl.return_value = None
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(url="https://example.com")
+                ).encode(),
+            }
+        )
+        factory, _ = _make_session_factory()
+        ctx = _ctx(redis, _http_client(200), factory)
+
+        await check_monitor(ctx, monitor_id=monitor_id)
+
+        mock_ssl.assert_awaited_once()
+        ssl_calls = [
+            c
+            for c in redis.enqueue_job.call_args_list
+            if c[0][0] == "send_alert_ssl_expiry"
+        ]
+        assert len(ssl_calls) == 0
 
 
 # ---------------------------------------------------------------------------
