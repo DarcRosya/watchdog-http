@@ -1,14 +1,15 @@
 import json
 
+import redis.asyncio as aioredis
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
 from aiogram.types import Message
-from arq import create_pool
 from sqlalchemy import select, update
 
 from src.config.settings import settings
 from src.core.database import async_session_factory
 from src.core.logging import configure_logging, get_logger
+from src.core.redis import create_redis_client
 from src.models.monitor import Monitor
 from src.models.user import User
 
@@ -22,62 +23,67 @@ logger = get_logger("telegram")
 router = Router()
 
 
-async def refresh_user_monitor_cache(user_id: int, telegram_chat_id: int) -> None:
+async def refresh_user_monitor_cache(
+    user_id: int,
+    telegram_chat_id: int | None,
+    redis_client: aioredis.Redis | None,
+) -> None:
     """Update Redis cache for all monitors of a user after Telegram linking."""
-    redis = await create_pool(settings.redis.arq_settings)
-    try:
-        async with async_session_factory() as session:
-            query = select(Monitor.id).where(
-                Monitor.user_id == user_id,
-                Monitor.is_active == True,  # noqa: E712
-            )
-            result = await session.execute(query)
-            monitor_ids = result.scalars().all()
 
-        if not monitor_ids:
-            logger.debug("cache_refresh_no_monitors", user_id=user_id)
-            return
+    if redis_client is None:
+        logger.debug("cache_refresh_skipped_no_redis", user_id=user_id)
+        return
 
-        async with redis.pipeline() as pipe:
-            for monitor_id in monitor_ids:
-                config_key = f"monitor:{monitor_id}:config"
-                pipe.get(config_key)
-                pipe.ttl(config_key)
-
-            # [config1, ttl1, config2, ttl2, ...]
-            # [index0, index1, index2, index3, ...]
-            read_results = await pipe.execute()
-
-        updated = 0
-
-        async with redis.pipeline() as pipe:
-            for i, monitor_id in enumerate(monitor_ids):
-                config_raw = read_results[i * 2]  # Even indexes are configs
-                ttl = read_results[i * 2 + 1]  # Odd indexes are TTL
-
-                if config_raw:
-                    config = json.loads(config_raw)
-                    config["telegram_chat_id"] = telegram_chat_id
-
-                    if ttl < 0:
-                        ttl = 86400
-
-                    config_key = f"monitor:{monitor_id}:config"
-                    pipe.setex(config_key, ttl, json.dumps(config))
-                    updated += 1
-
-            if updated > 0:
-                await pipe.execute()
-
-        logger.info(
-            "monitor_cache_refreshed",
-            user_id=user_id,
-            telegram_chat_id=telegram_chat_id,
-            monitors_found=len(monitor_ids),
-            configs_updated=updated,
+    async with async_session_factory() as session:
+        query = select(Monitor.id).where(
+            Monitor.user_id == user_id,
+            Monitor.is_active == True,  # noqa: E712
         )
-    finally:
-        await redis.aclose()
+        result = await session.execute(query)
+        monitor_ids = result.scalars().all()
+
+    if not monitor_ids:
+        logger.debug("cache_refresh_no_monitors", user_id=user_id)
+        return
+
+    async with redis_client.pipeline() as pipe:
+        for monitor_id in monitor_ids:
+            config_key = f"monitor:{monitor_id}:config"
+            pipe.get(config_key)
+            pipe.ttl(config_key)
+
+        # [config1, ttl1, config2, ttl2, ...]
+        # [index0, index1, index2, index3, ...]
+        read_results = await pipe.execute()
+
+    updated = 0
+
+    async with redis_client.pipeline() as pipe:
+        for i, monitor_id in enumerate(monitor_ids):
+            config_raw = read_results[i * 2]  # Even indexes are configs
+            ttl = read_results[i * 2 + 1]  # Odd indexes are TTL
+
+            if config_raw:
+                config = json.loads(config_raw)
+                config["telegram_chat_id"] = telegram_chat_id
+
+                if ttl < 0:
+                    ttl = 86400
+
+                config_key = f"monitor:{monitor_id}:config"
+                pipe.setex(config_key, ttl, json.dumps(config))
+                updated += 1
+
+        if updated > 0:
+            await pipe.execute()
+
+    logger.info(
+        "monitor_cache_refreshed",
+        user_id=user_id,
+        telegram_chat_id=telegram_chat_id,
+        monitors_found=len(monitor_ids),
+        configs_updated=updated,
+    )
 
 
 @router.message(Command("start"))
@@ -217,7 +223,7 @@ async def verify_username(message: Message) -> None:
 
         # Refresh Redis cache so workers pick up the new telegram_chat_id
         try:
-            await refresh_user_monitor_cache(user.id, telegram_id)
+            await refresh_user_monitor_cache(user.id, telegram_id, _bot_redis)
         except Exception as e:
             logger.error(
                 "cache_refresh_failed",
@@ -243,11 +249,21 @@ async def verify_username(message: Message) -> None:
         )
 
 
+_bot_redis: aioredis.Redis | None = None
+
+
 async def main() -> None:
+    global _bot_redis
+
     configure_logging(
         service="telegram",
         json_logs=not settings.debug_mode,
         log_level="DEBUG" if settings.debug_mode else "INFO",
+    )
+
+    _bot_redis = create_redis_client(
+        host=settings.redis.R_HOST,
+        port=settings.redis.R_PORT,
     )
 
     bot = Bot(token=settings.telegram.token)
@@ -256,7 +272,10 @@ async def main() -> None:
 
     logger.info("startup", bot_username="watchdog_bot")
 
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await _bot_redis.aclose()
 
 
 if __name__ == "__main__":

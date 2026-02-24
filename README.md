@@ -1,6 +1,6 @@
 # 🛡️ Watchdog HTTP
 
-![Version](https://img.shields.io/badge/version-2.1.2-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.1.5-blue?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.128%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![ARQ](https://img.shields.io/badge/ARQ-Workers-DC382D?style=for-the-badge&logo=redis&logoColor=white)
@@ -20,7 +20,7 @@
 - **REST API + Swagger UI** — manage monitors and users through a documented FastAPI interface.
 - **Streamlit dashboard** — real-time visualization of monitor health and historical trends.
 - **Structured JSON logging** — every worker and API event is machine-readable; pipe through `jq` out of the box.
-- **Full test suite** — 157 tests (unit + integration), `mypy`-clean, `black`-formatted.
+- **Full test suite** — 204 tests (unit + integration), `mypy`-clean, `black`-formatted.
 
 ---
 

@@ -8,7 +8,15 @@ import httpx
 import pytest
 from httpx import Response
 
-from src.worker.monitoring import check_monitor
+from src.worker.monitoring import (
+    check_monitor,
+    get_monitor_config,
+    execute_http_check,
+    check_ssl_expiry,
+    process_alerting,
+    HttpCheckResult,
+    FAILURE_THRESHOLD,
+)
 from src.worker.scheduler import scheduler
 
 # ---------------------------------------------------------------------------
@@ -101,8 +109,423 @@ def _ctx(redis, http_client, session_factory) -> dict:
     }
 
 
+def _make_result(**overrides) -> HttpCheckResult:
+    """Create an HttpCheckResult with sensible defaults."""
+    defaults = {
+        "start_time": datetime.now(timezone.utc),
+        "duration_ms": 42,
+        "status_code": 200,
+        "is_success": True,
+        "error_message": None,
+        "alert_type": None,
+    }
+    defaults.update(overrides)
+    return HttpCheckResult(**defaults)
+
+
 # ---------------------------------------------------------------------------
-# Tests: check_monitor
+# Tests: get_monitor_config
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGetMonitorConfig:
+
+    async def test_returns_config_from_redis_cache(self):
+        monitor_id = 1
+        expected = _config()
+        redis = _make_redis(
+            {f"monitor:{monitor_id}:config": json.dumps(expected).encode()}
+        )
+        factory, _ = _make_session_factory()
+
+        result = await get_monitor_config(redis, factory, monitor_id)
+
+        assert result["url"] == "https://example.com"
+        assert result["method"] == "GET"
+
+    async def test_returns_skipped_when_paused_in_cache(self):
+        monitor_id = 1
+        redis = _make_redis(
+            {
+                f"monitor:{monitor_id}:config": json.dumps(
+                    _config(is_active=False)
+                ).encode()
+            }
+        )
+        factory, _ = _make_session_factory()
+
+        result = await get_monitor_config(redis, factory, monitor_id)
+
+        assert result == {"status": "skipped", "reason": "paused"}
+
+    async def test_returns_skipped_when_monitor_not_in_db(self):
+        factory, mock_session = _make_session_factory()
+        mock_session.get.return_value = None
+        redis = _make_redis({})
+
+        result = await get_monitor_config(redis, factory, monitor_id=999)
+
+        assert result == {"status": "skipped", "reason": "not_found"}
+
+    async def test_falls_back_to_db_and_caches(self):
+        from src.models.monitor import Monitor as MonitorModel
+        from src.models.user import User as UserModel
+
+        mock_monitor = MagicMock(spec=MonitorModel)
+        mock_monitor.url = "https://db.example.com"
+        mock_monitor.method = "POST"
+        mock_monitor.headers = {"X-Key": "val"}
+        mock_monitor.body = None
+        mock_monitor.name = "DB Mon"
+        mock_monitor.is_active = True
+        mock_monitor.user_id = 5
+        mock_monitor.interval = 120
+
+        mock_user = MagicMock(spec=UserModel)
+        mock_user.username = "db_user"
+        mock_user.telegram_chat_id = 777
+
+        factory, mock_session = _make_session_factory()
+        mock_session.get.side_effect = [mock_monitor, mock_user]
+
+        redis = _make_redis({})
+        result = await get_monitor_config(redis, factory, monitor_id=10)
+
+        assert result["url"] == "https://db.example.com"
+        assert result["method"] == "POST"
+        assert result["username"] == "db_user"
+        # Verify it was cached in Redis
+        redis.setex.assert_called()
+
+    async def test_returns_skipped_when_paused_in_db(self):
+        from src.models.monitor import Monitor as MonitorModel
+
+        mock_monitor = MagicMock(spec=MonitorModel)
+        mock_monitor.is_active = False
+
+        factory, mock_session = _make_session_factory()
+        mock_session.get.return_value = mock_monitor
+        redis = _make_redis({})
+
+        result = await get_monitor_config(redis, factory, monitor_id=33)
+
+        assert result == {"status": "skipped", "reason": "paused"}
+
+
+# ---------------------------------------------------------------------------
+# Tests: execute_http_check
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestExecuteHttpCheck:
+
+    async def test_success_200(self):
+        config = _config()
+        client = _http_client(200)
+
+        result = await execute_http_check(client, config, monitor_id=1)
+
+        assert result.is_success is True
+        assert result.status_code == 200
+        assert result.alert_type is None
+        assert result.error_message is None
+        assert result.duration_ms >= 0
+
+    async def test_http_error_500(self):
+        config = _config()
+        client = _http_client(500)
+
+        result = await execute_http_check(client, config, monitor_id=1)
+
+        assert result.is_success is False
+        assert result.status_code == 500
+        assert result.alert_type is None  # HTTP errors don't set alert_type
+
+    async def test_timeout_sets_alert_type(self):
+        config = _config()
+        client = _failing_http_client(httpx.TimeoutException("timed out"))
+
+        result = await execute_http_check(client, config, monitor_id=1)
+
+        assert result.is_success is False
+        assert result.alert_type == "timeout"
+        assert "Timeout" in result.error_message
+
+    async def test_connect_error_sets_alert_type(self):
+        config = _config()
+        client = _failing_http_client(httpx.ConnectError("refused"))
+
+        result = await execute_http_check(client, config, monitor_id=1)
+
+        assert result.is_success is False
+        assert result.alert_type == "connection"
+
+    async def test_request_error_sets_alert_type(self):
+        config = _config()
+        client = _failing_http_client(httpx.RequestError("bad"))
+
+        result = await execute_http_check(client, config, monitor_id=1)
+
+        assert result.is_success is False
+        assert result.alert_type == "request"
+
+    async def test_local_protocol_error_sets_request_type(self):
+        config = _config()
+        client = _failing_http_client(httpx.LocalProtocolError("bad headers"))
+
+        result = await execute_http_check(client, config, monitor_id=1)
+
+        assert result.is_success is False
+        assert result.alert_type == "request"
+        assert "Protocol error" in result.error_message
+
+    async def test_post_with_body_sends_content(self):
+        config = _config(method="POST", body="payload", headers={"X-T": "1"})
+        client = _http_client(201)
+
+        result = await execute_http_check(client, config, monitor_id=1)
+
+        assert result.is_success is True
+        _, kwargs = client.request.call_args
+        assert kwargs["content"] == b"payload"
+        assert kwargs["method"] == "POST"
+
+    async def test_get_does_not_send_body(self):
+        config = _config(method="GET", body=None)
+        client = _http_client(200)
+
+        await execute_http_check(client, config, monitor_id=1)
+
+        _, kwargs = client.request.call_args
+        assert "content" not in kwargs
+
+
+# ---------------------------------------------------------------------------
+# Tests: check_ssl_expiry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCheckSslExpiry:
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_queues_alert_when_cert_expires_soon(self, mock_ssl):
+        mock_ssl.return_value = 3
+        monitor_id = 1
+        redis = _make_redis({})
+        config = _config(url="https://example.com")
+
+        await check_ssl_expiry(redis, monitor_id, config)
+
+        mock_ssl.assert_awaited_once_with("https://example.com")
+        ssl_calls = [
+            c
+            for c in redis.enqueue_job.call_args_list
+            if c[0][0] == "send_alert_ssl_expiry"
+        ]
+        assert len(ssl_calls) == 1
+        assert ssl_calls[0][0][6] == 3  # days_left
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_no_alert_when_cert_ok(self, mock_ssl):
+        mock_ssl.return_value = 90
+        redis = _make_redis({})
+
+        await check_ssl_expiry(redis, 1, _config(url="https://safe.com"))
+
+        redis.enqueue_job.assert_not_called()
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_skipped_for_http(self, mock_ssl):
+        redis = _make_redis({})
+
+        await check_ssl_expiry(redis, 1, _config(url="http://plain.com"))
+
+        mock_ssl.assert_not_called()
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_runs_only_once_per_day(self, mock_ssl):
+        redis = _make_redis({"monitor:1:ssl_checked_today": b"1"})
+
+        await check_ssl_expiry(redis, 1, _config(url="https://example.com"))
+
+        mock_ssl.assert_not_called()
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_no_duplicate_alert_within_24h(self, mock_ssl):
+        mock_ssl.return_value = 2
+        redis = _make_redis({"monitor:1:ssl_alert_sent": b"1"})
+
+        await check_ssl_expiry(redis, 1, _config(url="https://example.com"))
+
+        mock_ssl.assert_awaited_once()
+        ssl_calls = [
+            c
+            for c in redis.enqueue_job.call_args_list
+            if c[0][0] == "send_alert_ssl_expiry"
+        ]
+        assert len(ssl_calls) == 0
+
+    @patch("src.worker.monitoring.get_ssl_days_remaining", new_callable=AsyncMock)
+    async def test_handles_none_from_ssl_checker(self, mock_ssl):
+        mock_ssl.return_value = None
+        redis = _make_redis({})
+
+        await check_ssl_expiry(redis, 1, _config(url="https://example.com"))
+
+        redis.enqueue_job.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests: process_alerting
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestProcessAlerting:
+
+    async def test_resets_failures_on_success(self):
+        redis = _make_redis({"monitor:1:failures": b"3"})
+        result = _make_result(is_success=True)
+        config = _config()
+
+        await process_alerting(redis, 1, config, result, None, None)
+
+        # failure key should be deleted
+        redis.delete.assert_called()
+
+    async def test_recovery_alert_sent_on_state_transition(self):
+        recent_ts = str(int(datetime.now(timezone.utc).timestamp()) - 30)
+        redis = _make_redis({})
+        result = _make_result(is_success=True)
+        config = _config()
+
+        await process_alerting(
+            redis,
+            1,
+            config,
+            result,
+            previous_status=False,
+            old_timestamp_raw=recent_ts.encode(),
+        )
+
+        redis.enqueue_job.assert_called_once()
+        assert redis.enqueue_job.call_args[0][0] == "send_alert_recovery"
+
+    async def test_recovery_suppressed_when_no_timestamp(self):
+        redis = _make_redis({})
+        result = _make_result(is_success=True)
+
+        await process_alerting(
+            redis,
+            1,
+            _config(),
+            result,
+            previous_status=False,
+            old_timestamp_raw=None,
+        )
+
+        redis.enqueue_job.assert_not_called()
+
+    async def test_recovery_suppressed_when_stale_timestamp(self):
+        stale_ts = str(int(datetime.now(timezone.utc).timestamp()) - 7200)
+        redis = _make_redis({})
+        result = _make_result(is_success=True)
+
+        await process_alerting(
+            redis,
+            1,
+            _config(),
+            result,
+            previous_status=False,
+            old_timestamp_raw=stale_ts.encode(),
+        )
+
+        redis.enqueue_job.assert_not_called()
+
+    async def test_failure_increments_counter(self):
+        redis = _make_redis({})
+        result = _make_result(is_success=False, status_code=500)
+
+        await process_alerting(redis, 1, _config(), result, None, None)
+
+        # Should have set failure count = 1
+        redis.setex.assert_called()
+
+    async def test_alert_on_first_failure_after_ok(self):
+        redis = _make_redis({})
+        result = _make_result(is_success=False, status_code=500)
+
+        await process_alerting(
+            redis,
+            1,
+            _config(),
+            result,
+            previous_status=True,
+            old_timestamp_raw=None,
+        )
+
+        redis.enqueue_job.assert_called_once()
+        assert redis.enqueue_job.call_args[0][0] == "send_alert_http_error"
+
+    async def test_alert_suppressed_below_threshold(self):
+        redis = _make_redis({})
+        result = _make_result(is_success=False, status_code=503)
+
+        await process_alerting(
+            redis,
+            1,
+            _config(),
+            result,
+            previous_status=None,  # no prior state
+            old_timestamp_raw=None,
+        )
+
+        # failure_count=1 < threshold=2 and no prior OK state → suppressed
+        redis.enqueue_job.assert_not_called()
+
+    async def test_alert_fires_at_threshold(self):
+        redis = _make_redis({"monitor:1:failures": b"1"})  # already 1 failure
+        result = _make_result(is_success=False, status_code=500)
+
+        await process_alerting(
+            redis,
+            1,
+            _config(),
+            result,
+            previous_status=None,
+            old_timestamp_raw=None,
+        )
+
+        redis.enqueue_job.assert_called_once()
+
+    async def test_exception_alert_uses_alert_type(self):
+        redis = _make_redis({})
+        result = _make_result(
+            is_success=False,
+            status_code=None,
+            alert_type="timeout",
+            error_message="timed out",
+        )
+
+        await process_alerting(
+            redis,
+            1,
+            _config(),
+            result,
+            previous_status=True,
+            old_timestamp_raw=None,
+        )
+
+        args = redis.enqueue_job.call_args[0]
+        assert args[0] == "send_alert_exception"
+        assert args[6] == "timeout"
+
+
+# ---------------------------------------------------------------------------
+# Tests: check_monitor (integration of all steps)
 # ---------------------------------------------------------------------------
 
 

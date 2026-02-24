@@ -94,7 +94,11 @@ async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, Non
 
 @pytest.fixture(scope="session")
 async def redis_client() -> AsyncGenerator[aioredis.Redis, None]:
-    """Create Redis connection for tests (session-scoped)."""
+    """Create Redis connection for tests (session-scoped).
+
+    Tries a real Redis first; falls back to fakeredis (in-memory) if
+    available; otherwise skips all Redis-dependent tests.
+    """
     redis_host = os.getenv("REDIS__HOST", "localhost")
     redis_port = int(os.getenv("REDIS__PORT", "6379"))
 
@@ -107,13 +111,29 @@ async def redis_client() -> AsyncGenerator[aioredis.Redis, None]:
 
     try:
         await client.ping()
-    except Exception as e:
-        pytest.fail(f"Redis unavailable: {e}")
+    except Exception:
+        # Real Redis not available — try fakeredis
+        try:
+            from fakeredis.asyncio import FakeRedis  # type: ignore
+
+            client = FakeRedis(db=15, decode_responses=True)
+            await client.ping()
+        except Exception:
+            pytest.skip(
+                "Redis not available and fakeredis is not installed; "
+                "skipping Redis-dependent tests"
+            )
 
     yield client
 
-    await client.flushdb()
-    await client.close()
+    try:
+        await client.flushdb()
+    except Exception:
+        pass
+    try:
+        await client.aclose()
+    except Exception:
+        pass
 
 
 @pytest.fixture
@@ -138,8 +158,10 @@ async def client(
     async def override_get_db():
         yield db_session
 
+    app.state.redis = redis_client
+
     async def override_get_redis():
-        yield redis_client
+        return redis_client
 
     app.dependency_overrides[get_async_session] = override_get_db
     app.dependency_overrides[get_redis] = override_get_redis

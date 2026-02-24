@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 from src.core.database import DBSession
-from src.core.dependencies import CurrentUser
+from src.core.dependencies import CurrentUser, RedisClient
 from src.core.logging import get_logger
 from src.schemas.user import UserResponse, UserUpdate
 from src.schemas.auth import AuthRequest, AuthResponse
@@ -72,6 +72,7 @@ async def update_current_user(
     background_tasks: BackgroundTasks,
     user: CurrentUser,
     session: DBSession,
+    redis: RedisClient,
 ):
     service = UserService(session)
     updated_user = await service.update_user(user.id, update_data)
@@ -79,9 +80,11 @@ async def update_current_user(
     update_dict = update_data.model_dump(exclude_unset=True)
     if "telegram_chat_id" in update_dict:
         background_tasks.add_task(
-            refresh_user_monitor_cache, updated_user.id, updated_user.telegram_chat_id
+            refresh_user_monitor_cache,
+            updated_user.id,
+            updated_user.telegram_chat_id,
+            redis,
         )
-
     logger.info(
         "user_profile_updated",
         user_id=user.id,
