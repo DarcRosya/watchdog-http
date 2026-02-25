@@ -13,6 +13,8 @@ This guide walks through every step needed to get Watchdog running — from clon
 | Docker | 24+ | Required for the full stack |
 | Docker Compose | v2 (`docker compose`) | Shipped with modern Docker Desktop |
 | make | any | Available on Linux/macOS; Windows users can run commands manually |
+| Platform support | | This project is intended for Unix-like environments (Linux and macOS). Native Windows execution via CMD or PowerShell is not supported. Windows users should use WSL2 or a compatible Unix-like environment. |
+
 
 ---
 

@@ -75,6 +75,10 @@
 | Logging | **structlog** | Structured JSON logs |
 | Infrastructure | **Docker Compose** | Container orchestration |
 
+## Platform Support
+
+This project is designed for Unix-like environments (Linux and macOS). Native Windows execution (CMD/PowerShell) is not supported. If you need to run on Windows, use WSL2 or a compatible Unix-like environment.
+
 ---
 
 ## Project Structure

@@ -4,3 +4,15 @@
 README.md merge=ours
 src/pyproject.toml merge=ours
 src/main.py merge=ours
+
+* text=auto eol=lf
+
+*.py text eol=lf
+*.sh text eol=lf
+Makefile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
