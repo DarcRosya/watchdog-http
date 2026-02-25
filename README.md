@@ -6,6 +6,7 @@
 ![ARQ](https://img.shields.io/badge/ARQ-Workers-DC382D?style=for-the-badge&logo=redis&logoColor=white)
 ![TimescaleDB](https://img.shields.io/badge/TimescaleDB-PG14-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](https://opensource.org/licenses/MIT)
 
 **Watchdog** is an autonomous, asynchronous web-monitoring system. Background workers continuously run HTTP health checks on your APIs and websites, persist time-series metrics in TimescaleDB, and deliver real-time incident alerts to Telegram — without any manual intervention.
 
