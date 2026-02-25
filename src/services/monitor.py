@@ -25,23 +25,6 @@ class MonitorService:
         self.user_repo = UserRepository(session)
         self.resultlog_repo = ResultLogRepository(session)
 
-    async def _check_single_url(
-        self, client: httpx.AsyncClient, url: str
-    ) -> Tuple[str, bool, str | None]:
-        try:
-            response = await client.get(url, timeout=5.0)
-            is_alive = True
-            error = None
-            # 4xx and 5xx codes are errors, but the site is technically responding
-            # For monitoring purposes, we consider this a “problem"
-            if response.status_code >= 400:
-                error = f"Status code: {response.status_code}"
-        except httpx.RequestError as e:
-            is_alive = False
-            error = str(e)
-
-        return url, is_alive, error
-
     async def get_all_by_user(self, user_id: int) -> List[Monitor]:
         """Get all monitors for a specific user."""
         return await self.monitor_repo.get_all_by_user(user_id)
@@ -54,25 +37,9 @@ class MonitorService:
         self, monitors_data: List[MonitorCreate], user_id: int
     ) -> List[Monitor]:
         """Create multiple monitors with initial URL validation."""
-        # One client for all requests
-        async with httpx.AsyncClient() as client:
-            tasks = []
-            for data in monitors_data:
-                # Preparing coroutines for parallel execution
-                tasks.append(self._check_single_url(client, str(data.url)))
-
-            # gather() runs all coroutines “simultaneously”
-            # Returns results in the same order
-            results = await asyncio.gather(*tasks)
-
         new_monitors = []
 
-        for data, (url, is_alive, error) in zip(monitors_data, results):
-            if not is_alive:
-                logger.warning("monitor_url_unavailable", url=url, error=error)
-            else:
-                logger.info("monitor_url_checked", url=url, is_alive=True)
-
+        for data in monitors_data:
             monitor = Monitor(
                 user_id=user_id,
                 url=str(data.url),

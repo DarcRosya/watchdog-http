@@ -310,6 +310,6 @@ class AlertingWorkerSettings:
     on_startup = startup_alerting
     on_shutdown = shutdown
 
-    max_jobs = 30  # Moderate concurrency for Telegram API
+    max_jobs = 15  # Moderate concurrency for Telegram API
     job_timeout = 30  # Telegram API timeout
     max_tries = 3  # Retry on network failures

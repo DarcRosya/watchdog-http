@@ -114,7 +114,7 @@ services:
 
   monitoring-worker:
     build: ./src
-    container_name: watchdog_monitoring_worker
+    # container_name: watchdog_monitoring_worker
     command: arq src.worker.monitoring.MonitoringWorkerSettings
     restart: unless-stopped
     env_file:
@@ -132,12 +132,15 @@ services:
     volumes:
       - ./logs:/app/logs
     deploy:
+      mode: replicated
+      replicas: 3
       resources:
         limits:
           cpus: '0.5'
           memory: 384M
         reservations:
           memory: 128M
+
 
   alerting-worker:
     build: ./src

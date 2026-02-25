@@ -9,9 +9,9 @@ from src.config.settings import settings
 engine = create_async_engine(
     url=settings.db.DATABASE_URL,
     echo=settings.debug_mode,
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=10,
+    pool_size=20,
+    max_overflow=10,
+    pool_timeout=30.0,
     pool_recycle=1800,
     pool_pre_ping=True,
 )
