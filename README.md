@@ -3,6 +3,7 @@
 ![Version](https://img.shields.io/badge/version-2.1.7-blue?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.128%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white)
 ![ARQ](https://img.shields.io/badge/ARQ-Workers-DC382D?style=for-the-badge&logo=redis&logoColor=white)
 ![TimescaleDB](https://img.shields.io/badge/TimescaleDB-PG14-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
