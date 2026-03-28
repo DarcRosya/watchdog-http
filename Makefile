@@ -53,7 +53,7 @@ check: format lint ## Run all checks (format + lint)
 
 test: ## Run all tests (requires test infra: make test-infra-up)
 	@printf "$(BLUE)Running all tests...$(NC)\n"
-	cd src && poetry run pytest tests
+	poetry -C src run pytest tests
 	@printf "$(GREEN)✓ Tests complete$(NC)\n"
 
 test-infra-up: ## Start isolated test containers (postgres:5433, redis:6380)
@@ -79,7 +79,7 @@ test-infra-down: ## Stop and remove isolated test containers (data is discarded)
 
 test-cov: ## Run tests with coverage report
 	@printf "$(BLUE)Running tests with coverage...$(NC)\n"
-	cd src && poetry run pytest tests --cov=src --cov-report=term-missing --cov-report=html
+	poetry -C src run pytest tests --cov=src --cov-report=term-missing --cov-report=html
 	@printf "$(GREEN)✓ Coverage report generated in htmlcov/$(NC)\n"
 
 

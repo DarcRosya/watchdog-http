@@ -113,7 +113,7 @@ jobs:
           REDIS__HOST: localhost
           REDIS__PORT: "6379"
           TELEGRAM__BOT_TOKEN: "dummy_token_for_ci_tests"
-        run: cd src && poetry run pytest tests -m "not skip_ci"
+        run: cd src && poetry run pytest ../tests -m "not skip_ci"
 
   version-sync-check:
     name: Version Sync Check
