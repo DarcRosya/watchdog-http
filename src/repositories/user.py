@@ -9,7 +9,7 @@ from src.models.user import User
 class UserRepository:
     """Repository for User model - handles database operations only."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def get_by_id(self, user_id: int) -> User | None:

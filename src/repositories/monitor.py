@@ -9,7 +9,7 @@ from src.models.monitor import Monitor
 class MonitorRepository:
     """Repository for Monitor model - handles database operations only."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def get_by_id(self, monitor_id: int, user_id: int) -> Monitor | None:

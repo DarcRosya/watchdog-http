@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -11,19 +10,17 @@ class UserResponse(BaseModel):
     id: int = Field(description="Unique identifier of the user.")
     username: str = Field(description="The username.")
     api_key: str = Field(description="API key for authentication.")
-    telegram_chat_id: Optional[int] = Field(
-        default=None, description="Telegram Chat ID."
-    )
+    telegram_chat_id: int | None = Field(default=None, description="Telegram Chat ID.")
     created_at: datetime = Field(description="Creation timestamp.")
 
 
 class UserUpdate(BaseModel):
-    username: Optional[str] = Field(
+    username: str | None = Field(
         default=None,
         min_length=3,
         max_length=100,
         description="New username to update.",
     )
-    telegram_chat_id: Optional[int] = Field(
+    telegram_chat_id: int | None = Field(
         default=None, description="New Telegram Chat ID to update."
     )

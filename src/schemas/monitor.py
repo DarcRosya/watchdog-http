@@ -1,4 +1,4 @@
-from typing import Annotated, Optional
+from typing import Annotated
 from enum import Enum
 
 from pydantic import (
@@ -25,13 +25,13 @@ class HttpMethod(str, Enum):
 
 class MonitorCreate(BaseModel):
     url: HttpUrl
-    name: Optional[
-        Annotated[str, StringConstraints(max_length=50, strip_whitespace=True)]
-    ] = None
-    headers: Optional[dict[str, str]] = Field(
+    name: (
+        Annotated[str, StringConstraints(max_length=50, strip_whitespace=True)] | None
+    ) = None
+    headers: dict[str, str] | None = Field(
         None, description="Custom HTTP headers for the probe"
     )
-    body: Optional[str] = Field(
+    body: str | None = Field(
         None, description="Request body for POST/PUT/PATCH/DELETE requests"
     )
 
@@ -67,14 +67,14 @@ class MonitorResponse(MonitorCreate):
 
 
 class MonitorUpdate(BaseModel):
-    name: Optional[
-        Annotated[str, StringConstraints(max_length=50, strip_whitespace=True)]
-    ] = None
-    url: Optional[HttpUrl] = Field(None, description="URL to monitor")
-    method: Optional[HttpMethod] = Field(None, description="HTTP request method")
-    headers: Optional[dict[str, str]] = Field(None, description="Custom HTTP headers")
-    body: Optional[str] = Field(None, description="Request body for POST/PUT/PATCH")
-    interval: Optional[int] = Field(
+    name: (
+        Annotated[str, StringConstraints(max_length=50, strip_whitespace=True)] | None
+    ) = None
+    url: HttpUrl | None = Field(None, description="URL to monitor")
+    method: HttpMethod | None = Field(None, description="HTTP request method")
+    headers: dict[str, str] | None = Field(None, description="Custom HTTP headers")
+    body: str | None = Field(None, description="Request body for POST/PUT/PATCH")
+    interval: int | None = Field(
         None,
         ge=60,
         description="Check interval in seconds (minimum 60, multiples of 60)",

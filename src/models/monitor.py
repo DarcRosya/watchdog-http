@@ -1,14 +1,14 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import String, Text, func, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base
-from src.core.db_types import intpk, aware_datetime
+from src.core.db_types import aware_datetime, intpk
 
 if TYPE_CHECKING:
-    from .user import User
+    from .user import User  # type: ignore # noqa: F401
 
 
 class Monitor(Base):
@@ -21,7 +21,7 @@ class Monitor(Base):
     url: Mapped[str] = mapped_column(Text, nullable=False)
 
     method: Mapped[str] = mapped_column(String(10), default="GET")
-    headers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    headers: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=True)
 
     interval: Mapped[int] = mapped_column(nullable=False, default=60)  # in seconds

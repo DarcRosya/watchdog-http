@@ -23,7 +23,7 @@ configure_logging(
 logger = get_logger("worker")
 
 
-async def hydrate_cache(ctx: dict[str, Any]):
+async def hydrate_cache(ctx: dict[str, Any]) -> None:
     """
     Initialize Redis cache with active monitors and restore last known states from DB logs.
     Uses distributed lock to ensure only one worker performs hydration.

@@ -80,7 +80,7 @@ class TelegramNotifier:
 
     TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
-    def __init__(self, http_client: httpx.AsyncClient | None = None):
+    def __init__(self, http_client: httpx.AsyncClient | None = None) -> None:
         self.token = settings.telegram.token
         self.api_url = self.TELEGRAM_API_URL.format(token=self.token)
         self._http_client = http_client

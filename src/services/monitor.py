@@ -1,11 +1,10 @@
-import asyncio
 from datetime import datetime, timedelta
-from typing import List, Tuple
+from typing import Any, Callable, List, Literal, cast
 
-import httpx
 import redis.asyncio as aioredis
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.logging import get_logger
+import src.core.logging as app_logging
 from src.models.monitor import Monitor
 from src.repositories.monitor import MonitorRepository
 from src.repositories.resultlog import ResultLogRepository
@@ -13,13 +12,17 @@ from src.repositories.user import UserRepository
 from src.schemas.monitor import MonitorCreate, MonitoringStatus, MonitorUpdate
 from src.utils.time import get_next_aligned_time
 
+GetLogger = Callable[[Literal["api", "worker", "telegram", "service"]], Any]
+get_logger = cast(GetLogger, app_logging.get_logger)
 logger = get_logger("service")
 
 
 class MonitorService:
     """Service layer for Monitor business logic and Redis operations."""
 
-    def __init__(self, session, redis: aioredis.Redis | None = None):
+    def __init__(
+        self, session: AsyncSession, redis: aioredis.Redis | None = None
+    ) -> None:
         self.redis = redis
         self.monitor_repo = MonitorRepository(session)
         self.user_repo = UserRepository(session)
@@ -77,7 +80,7 @@ class MonitorService:
 
                     pipe.set(f"monitor:{monitor.id}:interval", monitor.interval)
 
-                    config = {
+                    config: dict[str, Any] = {
                         "url": monitor.url,
                         "method": monitor.method,
                         "headers": monitor.headers or {},
@@ -266,7 +269,7 @@ class MonitorService:
         hours: int = 24,
         limit: int | None = None,
         offset: int | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         monitor = await self.monitor_repo.get_by_id(monitor_id, user_id)
         if not monitor:
             return {"data": [], "total": 0, "limit": limit, "offset": offset or 0}
@@ -279,7 +282,7 @@ class MonitorService:
             monitor_id, start_time, end_time, limit, offset
         )
 
-        data = [
+        data: list[dict[str, Any]] = [
             {
                 "start_time": log.start_time.isoformat(),
                 "duration_ms": log.duration_ms,

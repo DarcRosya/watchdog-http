@@ -1,18 +1,21 @@
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
-import json
+from typing import Any, Callable, cast
 
 import httpx
+from arq.connections import ArqRedis
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.config.settings import settings
 from src.models.monitor import Monitor
-from src.models.user import User
 from src.models.resultlog import ResultLog
+from src.models.user import User
 from src.utils.ssl_checker import get_ssl_days_remaining
 from src.worker.lifecycle import (
-    startup_monitoring,
-    shutdown,
     logger,
+    shutdown,
+    startup_monitoring,
 )
 
 # Queue name constants for cross-worker job routing
@@ -21,18 +24,14 @@ ALERTING_QUEUE = "arq:alerting"
 
 @dataclass
 class HttpCheckResult:
-    """Result of a single HTTP check against a monitor endpoint.
+    """Result of a single HTTP check against a monitor endpoint."""
 
-    Field types are permissive (`Any`) to make construction from test
-    fixtures (dicts) and runtime callers more flexible for typing checks.
-    """
-
-    start_time: Any
-    duration_ms: Any
-    status_code: Any
-    is_success: Any
-    error_message: Any
-    alert_type: Any
+    start_time: datetime
+    duration_ms: int
+    status_code: int | None
+    is_success: bool
+    error_message: str | None
+    alert_type: str | None
 
 
 # =============================================================================
@@ -40,7 +39,11 @@ class HttpCheckResult:
 # =============================================================================
 
 
-async def get_monitor_config(redis, session_factory, monitor_id: int) -> dict[str, Any]:
+async def get_monitor_config(
+    redis: ArqRedis,
+    session_factory: Callable[[], AsyncSession],
+    monitor_id: int,
+) -> dict[str, Any]:
     """Load monitor configuration from Redis cache with DB fallback."""
     config_key = f"monitor:{monitor_id}:config"
     config_raw = await redis.get(config_key)
@@ -193,7 +196,9 @@ async def execute_http_check(
 
 
 async def persist_result_log(
-    session_factory, monitor_id: int, result: HttpCheckResult
+    session_factory: Callable[[], AsyncSession],
+    monitor_id: int,
+    result: HttpCheckResult,
 ) -> None:
     """Write the check result to the database."""
     async with session_factory() as session:
@@ -215,7 +220,7 @@ async def persist_result_log(
 
 
 async def check_ssl_expiry(
-    redis,
+    redis: ArqRedis,
     monitor_id: int,
     config: dict[str, Any],
 ) -> None:
@@ -273,7 +278,7 @@ FAILURE_THRESHOLD = 2
 
 
 async def process_alerting(
-    redis,
+    redis: ArqRedis,
     monitor_id: int,
     config: dict[str, Any],
     result: HttpCheckResult,
@@ -508,7 +513,7 @@ class MonitoringWorkerSettings:
 
     functions = [check_monitor]
 
-    cron_jobs: list = []
+    cron_jobs: list[Any] = []
 
     on_startup = startup_monitoring
     on_shutdown = shutdown

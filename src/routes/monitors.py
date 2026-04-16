@@ -1,14 +1,15 @@
-from typing import List
+from typing import Any, List
 
 from fastapi import APIRouter, HTTPException, status
 
 from src.core.database import DBSession
 from src.core.dependencies import CurrentUser, RedisClient
 from src.core.logging import get_logger
+from src.models.monitor import Monitor
 from src.schemas.monitor import (
     MonitorCreate,
-    MonitorResponse,
     MonitoringStatus,
+    MonitorResponse,
     MonitorUpdate,
 )
 from src.services.monitor import MonitorService
@@ -23,7 +24,9 @@ router = APIRouter(prefix="/monitors", tags=["Monitors"])
     summary="Get all monitors for current user",
     description="Returns a list of all monitoring URLs for the authenticated user.",
 )
-async def get_monitors(user: CurrentUser, session: DBSession, redis: RedisClient):
+async def get_monitors(
+    user: CurrentUser, session: DBSession, redis: RedisClient
+) -> list[Monitor]:
     service = MonitorService(session, redis)
     return await service.get_all_by_user(user.id)
 
@@ -36,7 +39,7 @@ async def get_monitors(user: CurrentUser, session: DBSession, redis: RedisClient
 )
 async def get_monitor(
     monitor_id: int, user: CurrentUser, session: DBSession, redis: RedisClient
-):
+) -> Monitor:
     service = MonitorService(session, redis)
     monitor = await service.get_by_id(monitor_id, user.id)
 
@@ -61,7 +64,7 @@ async def create_monitors_bulk(
     user: CurrentUser,
     session: DBSession,
     redis: RedisClient,
-):
+) -> list[Monitor]:
     logger.info(
         "monitors_bulk_create",
         user=user.username,
@@ -80,7 +83,9 @@ async def create_monitors_bulk(
     summary="Start all monitoring",
     description="Activate all monitors for the current user. Worker will begin checking URLs.",
 )
-async def start_monitoring(user: CurrentUser, session: DBSession, redis: RedisClient):
+async def start_monitoring(
+    user: CurrentUser, session: DBSession, redis: RedisClient
+) -> MonitoringStatus:
     service = MonitorService(session, redis)
     return await service.start_all(user.id, user.username)
 
@@ -91,7 +96,9 @@ async def start_monitoring(user: CurrentUser, session: DBSession, redis: RedisCl
     summary="Stop all monitoring",
     description="Deactivate all monitors for the current user. Worker will stop checking URLs.",
 )
-async def stop_monitoring(user: CurrentUser, session: DBSession, redis: RedisClient):
+async def stop_monitoring(
+    user: CurrentUser, session: DBSession, redis: RedisClient
+) -> MonitoringStatus:
     service = MonitorService(session, redis)
     return await service.stop_all(user.id, user.username)
 
@@ -104,7 +111,7 @@ async def stop_monitoring(user: CurrentUser, session: DBSession, redis: RedisCli
 )
 async def toggle_monitor(
     monitor_id: int, user: CurrentUser, session: DBSession, redis: RedisClient
-):
+) -> Monitor:
     service = MonitorService(session, redis)
     monitor = await service.get_by_id(monitor_id, user.id)
 
@@ -129,7 +136,7 @@ async def update_monitor(
     user: CurrentUser,
     session: DBSession,
     redis: RedisClient,
-):
+) -> Monitor:
     service = MonitorService(session, redis)
     monitor = await service.get_by_id(monitor_id, user.id)
 
@@ -159,7 +166,7 @@ async def update_monitor(
 )
 async def delete_monitor(
     monitor_id: int, user: CurrentUser, session: DBSession, redis: RedisClient
-):
+) -> None:
     service = MonitorService(session, redis)
     monitor = await service.get_by_id(monitor_id, user.id)
 
@@ -186,7 +193,7 @@ async def get_monitor_statistics(
     hours: int = 24,
     limit: int | None = None,
     offset: int | None = None,
-):
+) -> dict[str, Any]:
     service = MonitorService(session, redis)
 
     monitor = await service.get_by_id(monitor_id, user.id)

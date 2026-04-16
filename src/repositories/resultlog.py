@@ -10,7 +10,7 @@ from src.models.resultlog import ResultLog
 class ResultLogRepository:
     """Repository for ResultLog model - handles database operations only."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def get_by_monitor(

@@ -3,8 +3,9 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from src.core.database import DBSession
 from src.core.dependencies import CurrentUser, RedisClient
 from src.core.logging import get_logger
-from src.schemas.user import UserResponse, UserUpdate
+from src.models.user import User
 from src.schemas.auth import AuthRequest, AuthResponse
+from src.schemas.user import UserResponse, UserUpdate
 from src.services.user import UserService
 from src.telegram.bot import refresh_user_monitor_cache
 
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
     summary="Create a new user",
     description="Registers a new user with auto-generated username and API key.",
 )
-async def create_user(session: DBSession):
+async def create_user(session: DBSession) -> User:
     service = UserService(session)
 
     logger.info("user_registration_attempt")
@@ -37,7 +38,7 @@ async def create_user(session: DBSession):
     summary="Authenticate and get API key",
     description="Get your API key by providing your username. Use this if you lost your key.",
 )
-async def authenticate(auth_data: AuthRequest, session: DBSession):
+async def authenticate(auth_data: AuthRequest, session: DBSession) -> User:
     service = UserService(session)
     user = await service.get_user_by_username(auth_data.username)
 
@@ -57,7 +58,7 @@ async def authenticate(auth_data: AuthRequest, session: DBSession):
     summary="Get current user",
     description="Get information about the currently authenticated user.",
 )
-async def get_current_user_info(user: CurrentUser):
+async def get_current_user_info(user: CurrentUser) -> User:
     return user
 
 
@@ -73,7 +74,7 @@ async def update_current_user(
     user: CurrentUser,
     session: DBSession,
     redis: RedisClient,
-):
+) -> User:
     service = UserService(session)
     updated_user = await service.update_user(user.id, update_data)
 
@@ -102,8 +103,10 @@ async def update_current_user(
     responses={404: {"description": "User not found"}},
 )
 async def get_user(
-    user_id: int, session: DBSession, _user: CurrentUser  # Require authentication
-):
+    user_id: int,
+    session: DBSession,
+    _user: CurrentUser,  # Require authentication
+) -> User:
     service = UserService(session)
     user = await service.get_user_by_id(user_id)
 
@@ -123,8 +126,10 @@ async def get_user(
     responses={404: {"description": "No user with this Telegram ID was found."}},
 )
 async def get_user_by_telegram(
-    telegram_id: int, session: DBSession, _user: CurrentUser  # Require authentication
-):
+    telegram_id: int,
+    session: DBSession,
+    _user: CurrentUser,  # Require authentication
+) -> User:
     service = UserService(session)
     user = await service.get_user_by_telegram_id(telegram_id)
 
