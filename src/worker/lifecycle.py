@@ -1,9 +1,11 @@
-from typing import Any
-import json
 import asyncio
+import json
+from typing import Any, TypedDict
 
 import httpx
-from sqlalchemy import select, func
+from arq.connections import ArqRedis
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.config.settings import settings
 from src.core.database import async_session_factory
@@ -14,6 +16,26 @@ from src.models.user import User
 from src.telegram.notifier import TelegramNotifier
 from src.utils.time import get_next_aligned_time
 
+
+class WorkerContext(TypedDict):
+    """Base ARQ context keys available to all workers."""
+
+    redis: ArqRedis
+    session_factory: async_sessionmaker[AsyncSession]
+
+
+class MonitoringWorkerContext(WorkerContext):
+    """Context for workers that perform HTTP checks."""
+
+    http_client: httpx.AsyncClient
+
+
+class AlertingWorkerContext(MonitoringWorkerContext):
+    """Context for workers that send Telegram notifications."""
+
+    notifier: TelegramNotifier
+
+
 configure_logging(
     service="worker",
     json_logs=not settings.debug_mode,
@@ -23,7 +45,7 @@ configure_logging(
 logger = get_logger("worker")
 
 
-async def hydrate_cache(ctx: dict[str, Any]) -> None:
+async def hydrate_cache(ctx: WorkerContext) -> None:
     """
     Initialize Redis cache with active monitors and restore last known states from DB logs.
     Uses distributed lock to ensure only one worker performs hydration.
@@ -90,7 +112,7 @@ async def hydrate_cache(ctx: dict[str, Any]) -> None:
                     # Store interval
                     pipe.set(f"monitor:{monitor.id}:interval", monitor.interval)
 
-                    config = {
+                    config: dict[str, Any] = {
                         "url": monitor.url,
                         "method": monitor.method,
                         "headers": monitor.headers or {},
@@ -134,7 +156,7 @@ async def hydrate_cache(ctx: dict[str, Any]) -> None:
         logger.debug("hydrate_cache_lock_released")
 
 
-async def startup_scheduler(ctx: dict[str, Any]) -> None:
+async def startup_scheduler(ctx: WorkerContext) -> None:
     """Startup for scheduler worker - initializes DB session and hydrates cache."""
     logger.info(
         "scheduler_startup",
@@ -151,7 +173,7 @@ async def startup_scheduler(ctx: dict[str, Any]) -> None:
     logger.info("scheduler_worker_ready")
 
 
-async def startup_monitoring(ctx: dict[str, Any]) -> None:
+async def startup_monitoring(ctx: MonitoringWorkerContext) -> None:
     """Startup for monitoring worker - initializes HTTP client and DB session."""
     logger.info(
         "monitoring_startup",
@@ -172,7 +194,7 @@ async def startup_monitoring(ctx: dict[str, Any]) -> None:
     logger.info("monitoring_worker_ready")
 
 
-async def startup_alerting(ctx: dict[str, Any]) -> None:
+async def startup_alerting(ctx: AlertingWorkerContext) -> None:
     """Startup for alerting worker - initializes HTTP client and Telegram notifier."""
     logger.info(
         "alerting_startup",
@@ -195,10 +217,10 @@ async def startup_alerting(ctx: dict[str, Any]) -> None:
     logger.info("alerting_worker_ready")
 
 
-async def shutdown(ctx: dict[str, Any]) -> None:
+async def shutdown(ctx: WorkerContext) -> None:
     logger.info("shutdown_started")
 
-    http_client: httpx.AsyncClient = ctx.get("http_client")
+    http_client = ctx.get("http_client")
     if http_client:
         await http_client.aclose()
         logger.info("http_client_closed")

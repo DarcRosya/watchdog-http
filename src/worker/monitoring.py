@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, TypedDict, cast
 
 import httpx
 from arq.connections import ArqRedis
@@ -13,6 +13,7 @@ from src.models.resultlog import ResultLog
 from src.models.user import User
 from src.utils.ssl_checker import get_ssl_days_remaining
 from src.worker.lifecycle import (
+    MonitoringWorkerContext,
     logger,
     shutdown,
     startup_monitoring,
@@ -20,6 +21,23 @@ from src.worker.lifecycle import (
 
 # Queue name constants for cross-worker job routing
 ALERTING_QUEUE = "arq:alerting"
+
+
+class MonitorRuntimeConfig(TypedDict):
+    url: str
+    method: str
+    headers: dict[str, Any]
+    body: Any
+    is_active: bool
+    name: str | None
+    user_id: int
+    username: str
+    telegram_chat_id: int | None
+
+
+class SkippedMonitorConfig(TypedDict):
+    status: Literal["skipped"]
+    reason: Literal["paused", "not_found"]
 
 
 @dataclass
@@ -43,13 +61,13 @@ async def get_monitor_config(
     redis: ArqRedis,
     session_factory: Callable[[], AsyncSession],
     monitor_id: int,
-) -> dict[str, Any]:
+) -> MonitorRuntimeConfig | SkippedMonitorConfig:
     """Load monitor configuration from Redis cache with DB fallback."""
     config_key = f"monitor:{monitor_id}:config"
     config_raw = await redis.get(config_key)
 
     if config_raw:
-        config = json.loads(config_raw)
+        config = cast(MonitorRuntimeConfig, json.loads(config_raw))
 
         if not config.get("is_active", True):
             logger.debug("monitor_paused", monitor_id=monitor_id, url=config["url"])
@@ -71,7 +89,7 @@ async def get_monitor_config(
 
         user = await session.get(User, monitor.user_id)
 
-        config = {
+        db_config: MonitorRuntimeConfig = {
             "url": monitor.url,
             "method": monitor.method,
             "headers": monitor.headers or {},
@@ -82,7 +100,7 @@ async def get_monitor_config(
             "username": user.username if user else "unknown",
             "telegram_chat_id": user.telegram_chat_id if user else None,
         }
-        await redis.setex(config_key, 86400, json.dumps(config))
+        await redis.setex(config_key, 86400, json.dumps(db_config))
         await redis.set(f"monitor:{monitor_id}:interval", monitor.interval)
 
         logger.info(
@@ -91,7 +109,7 @@ async def get_monitor_config(
             url=monitor.url,
         )
 
-    return config
+    return db_config
 
 
 # =============================================================================
@@ -101,7 +119,7 @@ async def get_monitor_config(
 
 async def execute_http_check(
     http_client: httpx.AsyncClient,
-    config: dict[str, Any],
+    config: MonitorRuntimeConfig,
     monitor_id: int,
 ) -> HttpCheckResult:
     """Perform the actual HTTP request and return structured result."""
@@ -112,7 +130,7 @@ async def execute_http_check(
 
     monitor_url = config["url"]
     monitor_method = config["method"]
-    monitor_headers = config.get("headers") or {}
+    monitor_headers = cast(dict[str, str], config.get("headers") or {})
     monitor_body = config.get("body")
 
     request_kwargs: dict[str, Any] = {
@@ -121,11 +139,7 @@ async def execute_http_check(
         "headers": monitor_headers,
     }
 
-    if (
-        monitor_body
-        and isinstance(monitor_method, str)
-        and monitor_method.upper() in ["POST", "PUT", "PATCH", "DELETE"]
-    ):
+    if monitor_body and monitor_method.upper() in ["POST", "PUT", "PATCH", "DELETE"]:
         if isinstance(monitor_body, (bytes, bytearray)):
             request_kwargs["content"] = monitor_body
         else:
@@ -222,7 +236,7 @@ async def persist_result_log(
 async def check_ssl_expiry(
     redis: ArqRedis,
     monitor_id: int,
-    config: dict[str, Any],
+    config: MonitorRuntimeConfig,
 ) -> None:
     """Check SSL certificate expiry for HTTPS monitors (max once/day)."""
     monitor_url = config["url"]
@@ -280,7 +294,7 @@ FAILURE_THRESHOLD = 2
 async def process_alerting(
     redis: ArqRedis,
     monitor_id: int,
-    config: dict[str, Any],
+    config: MonitorRuntimeConfig,
     result: HttpCheckResult,
     previous_status: bool | None,
     old_timestamp_raw: bytes | None,
@@ -421,17 +435,21 @@ async def process_alerting(
 # =============================================================================
 
 
-async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
+async def check_monitor(
+    ctx: MonitoringWorkerContext, monitor_id: int
+) -> dict[str, Any]:
     """Top-level ARQ task that orchestrates a full monitor check cycle."""
     redis = ctx["redis"]
 
     # 1. Resolve config
     config = await get_monitor_config(redis, ctx["session_factory"], monitor_id)
 
-    if "status" in config and config["status"] == "skipped":
-        return config
+    if "status" in config:
+        return cast(dict[str, Any], config)
 
-    monitor_url = config["url"]
+    runtime_config = config
+
+    monitor_url = runtime_config["url"]
 
     # 2. Read previous state
     state_key = f"monitor:{monitor_id}:state"
@@ -450,7 +468,7 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     )
 
     # 3. Execute HTTP check
-    result = await execute_http_check(ctx["http_client"], config, monitor_id)
+    result = await execute_http_check(ctx["http_client"], runtime_config, monitor_id)
 
     # 4. Persist result to DB
     await persist_result_log(ctx["session_factory"], monitor_id, result)
@@ -463,11 +481,16 @@ async def check_monitor(ctx: dict[str, Any], monitor_id: int) -> dict[str, Any]:
     await redis.setex(timestamp_key, 86400, str(int(result.start_time.timestamp())))
 
     # 6. SSL expiry check
-    await check_ssl_expiry(redis, monitor_id, config)
+    await check_ssl_expiry(redis, monitor_id, runtime_config)
 
     # 7. Alerting (failures, recovery, anti-flapping)
     await process_alerting(
-        redis, monitor_id, config, result, previous_status, old_timestamp_raw
+        redis,
+        monitor_id,
+        runtime_config,
+        result,
+        previous_status,
+        old_timestamp_raw,
     )
 
     next_run_score = await redis.zscore("scheduler", str(monitor_id))

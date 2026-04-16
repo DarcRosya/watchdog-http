@@ -1,4 +1,3 @@
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -6,7 +5,7 @@ from fastapi import FastAPI
 from src.config.settings import settings
 from src.core.logging import configure_logging, get_logger
 from src.core.redis import create_redis_client
-from src.routes import monitors, users
+from src.routes import users, monitors
 
 # from src.utils.version import __version__
 
@@ -20,7 +19,7 @@ logger = get_logger("api")
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI):
     app.state.redis = create_redis_client(
         host=settings.redis.R_HOST,
         port=settings.redis.R_PORT,
@@ -43,7 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Watchdog HTTP Monitoring Service",
-    version="2.1.9",
+    version="2.2.0",
     description="""
     Watchdog is an autonomous, asynchronous web monitoring system.
     It performs background health checks on target APIs and websites,
@@ -61,5 +60,5 @@ app.include_router(monitors.router)
 
 
 @app.get("/health", tags=["System"])
-async def health_check() -> dict[str, str]:
+async def health_check():
     return {"status": "ok", "service": "watchdog-api"}

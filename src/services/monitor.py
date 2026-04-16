@@ -41,7 +41,7 @@ class MonitorService:
         self, monitors_data: List[MonitorCreate], user_id: int
     ) -> List[Monitor]:
         """Create multiple monitors with initial URL validation."""
-        new_monitors = []
+        new_monitors: List[Monitor] = []
 
         for data in monitors_data:
             monitor = Monitor(
@@ -137,7 +137,7 @@ class MonitorService:
         # Fetch user data
         user = await self.user_repo.get_by_id(monitor.user_id)
 
-        config = {
+        config: dict[str, Any] = {
             "url": monitor.url,
             "method": monitor.method,
             "headers": monitor.headers or {},

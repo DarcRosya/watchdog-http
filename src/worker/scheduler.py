@@ -1,14 +1,15 @@
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from arq import cron
 
 from src.config.settings import settings
 from src.models.monitor import Monitor
 from src.worker.lifecycle import (
-    startup_scheduler,
-    shutdown,
+    WorkerContext,
     logger,
+    shutdown,
+    startup_scheduler,
 )
 
 # Queue name constants for cross-worker job routing
@@ -21,8 +22,9 @@ MONITORING_QUEUE = "arq:monitoring"
 
 async def scheduler(ctx: dict[str, Any]) -> None:
     """Scheduler that processes due monitors and enqueues check tasks."""
-    redis = ctx["redis"]
-    session_factory = ctx["session_factory"]
+    typed_ctx = cast(WorkerContext, ctx)
+    redis = typed_ctx["redis"]
+    session_factory = typed_ctx["session_factory"]
 
     logger.debug("scheduler_started", timestamp=datetime.now(timezone.utc).isoformat())
 
@@ -39,9 +41,17 @@ async def scheduler(ctx: dict[str, Any]) -> None:
             backlog=total_due - 100,
         )
 
-    due_monitors = await redis.zrangebyscore(
-        "scheduler", min="-inf", max=now_ts, start=0, num=100
+    due_monitors_raw = (
+        await redis.zrangebyscore(  # pyright: ignore[reportUnknownMemberType]
+            "scheduler",
+            min="-inf",
+            max=now_ts,
+            start=0,
+            num=100,
+            score_cast_func=str,
+        )
     )
+    due_monitors = cast(list[str], due_monitors_raw)
 
     if not due_monitors:
         logger.debug("scheduler_idle")

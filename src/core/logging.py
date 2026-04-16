@@ -2,7 +2,7 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import structlog
 from structlog.typing import Processor
@@ -98,5 +98,8 @@ def configure_logging(
     )  # Silence SQL queries
 
 
-def get_logger(service: ServiceType, **initial_context) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger(service=service, **initial_context)
+def get_logger(
+    service: ServiceType, **initial_context: object
+) -> structlog.stdlib.BoundLogger:
+    logger = structlog.get_logger(service=service, **initial_context)
+    return cast(structlog.stdlib.BoundLogger, logger)

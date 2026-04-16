@@ -1,4 +1,5 @@
-from src.core.database import Base
-from .user import User
-from .monitor import Monitor
-from .resultlog import ResultLog
+from src.core.database import Base  # type: ignore  # noqa: F401
+
+from .monitor import Monitor  # type: ignore  # noqa: F401
+from .resultlog import ResultLog  # type: ignore  # noqa: F401
+from .user import User  # type: ignore  # noqa: F401

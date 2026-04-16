@@ -1,7 +1,8 @@
 import json
+from typing import Any
 
 import redis.asyncio as aioredis
-from aiogram import Bot, Dispatcher, Router, F
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy import select, update
@@ -54,7 +55,7 @@ async def refresh_user_monitor_cache(
 
         # [config1, ttl1, config2, ttl2, ...]
         # [index0, index1, index2, index3, ...]
-        read_results = await pipe.execute()
+        read_results: list[Any] = await pipe.execute()
 
     updated = 0
 
@@ -64,7 +65,7 @@ async def refresh_user_monitor_cache(
             ttl = read_results[i * 2 + 1]  # Odd indexes are TTL
 
             if config_raw:
-                config = json.loads(config_raw)
+                config: dict[str, Any] = json.loads(config_raw)
                 config["telegram_chat_id"] = telegram_chat_id
 
                 if ttl < 0:
@@ -273,7 +274,7 @@ async def main() -> None:
     logger.info("startup", bot_username="watchdog_bot")
 
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(bot)  # type: ignore
     finally:
         await _bot_redis.aclose()
 

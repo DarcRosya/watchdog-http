@@ -103,7 +103,7 @@ class TelegramNotifier:
     ) -> bool:
         client = await self._get_client()
 
-        payload = {
+        payload: dict[str, str | int | bool] = {
             "chat_id": chat_id,
             "text": text,
             "parse_mode": parse_mode,

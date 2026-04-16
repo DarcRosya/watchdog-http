@@ -17,7 +17,7 @@ async def get_ssl_days_remaining(url: str) -> int | None:
 
     try:
         # Open a raw TCP connection with SSL “wrapper”
-        reader, writer = await asyncio.wait_for(
+        _, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port, ssl=ssl_context), timeout=5.0
         )
 

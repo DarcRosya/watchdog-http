@@ -1,10 +1,10 @@
 import secrets
 
-from coolname import generate_slug
+from coolname import generate_slug  # pyright: ignore[reportMissingTypeStubs]
 
 
 def generate_random_username() -> str:
-    return generate_slug(2)
+    return str(generate_slug(2))
 
 
 def generate_api_key() -> str:

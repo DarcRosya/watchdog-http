@@ -2,14 +2,15 @@ from typing import Any
 
 from src.config.settings import settings
 from src.telegram.notifier import (
-    TelegramNotifier,
     AlertType,
+    TelegramNotifier,
     get_predefined_message,
 )
 from src.worker.lifecycle import (
-    startup_alerting,
-    shutdown,
+    AlertingWorkerContext,
     logger,
+    shutdown,
+    startup_alerting,
 )
 
 # =============================================================================
@@ -18,7 +19,7 @@ from src.worker.lifecycle import (
 
 
 async def send_telegram_message(
-    ctx: dict[str, Any],
+    ctx: AlertingWorkerContext,
     chat_id: int,
     message: str,
     alert_metadata: dict[str, Any],
@@ -50,7 +51,7 @@ async def send_telegram_message(
 
 
 async def send_alert_http_error(
-    ctx: dict[str, Any],
+    ctx: AlertingWorkerContext,
     chat_id: int,
     username: str,
     monitor_id: int,
@@ -78,7 +79,7 @@ async def send_alert_http_error(
     )
 
     # Enqueue message sending
-    alert_metadata = {
+    alert_metadata: dict[str, str | int | None] = {
         "alert_type": "http_error",
         "monitor_id": monitor_id,
         "user": username,
@@ -108,7 +109,7 @@ async def send_alert_http_error(
 
 
 async def send_alert_exception(
-    ctx: dict[str, Any],
+    ctx: AlertingWorkerContext,
     chat_id: int,
     username: str,
     monitor_id: int,
@@ -143,7 +144,7 @@ async def send_alert_exception(
     )
 
     # Enqueue message sending
-    alert_metadata = {
+    alert_metadata: dict[str, str | int | None] = {
         "alert_type": alert_type,
         "monitor_id": monitor_id,
         "user": username,
@@ -175,7 +176,7 @@ async def send_alert_exception(
 
 
 async def send_alert_recovery(
-    ctx: dict[str, Any],
+    ctx: AlertingWorkerContext,
     chat_id: int,
     username: str,
     monitor_id: int,
@@ -200,7 +201,7 @@ async def send_alert_recovery(
     )
 
     # Enqueue message sending
-    alert_metadata = {
+    alert_metadata: dict[str, str | int | None] = {
         "alert_type": "recovery",
         "monitor_id": monitor_id,
         "user": username,
@@ -230,7 +231,7 @@ async def send_alert_recovery(
 
 
 async def send_alert_ssl_expiry(
-    ctx: dict[str, Any],
+    ctx: AlertingWorkerContext,
     chat_id: int,
     username: str,
     monitor_id: int,
@@ -256,7 +257,7 @@ async def send_alert_ssl_expiry(
         days_left=days_left,
     )
 
-    alert_metadata = {
+    alert_metadata: dict[str, str | int | None] = {
         "alert_type": "ssl_expiry",
         "monitor_id": monitor_id,
         "user": username,
@@ -296,7 +297,7 @@ class AlertingWorkerSettings:
     queue_name = "arq:alerting"
     redis_settings = settings.redis.arq_settings
 
-    functions = [
+    functions: list[Any] = [
         send_telegram_message,
         send_alert_http_error,
         send_alert_exception,
@@ -305,7 +306,7 @@ class AlertingWorkerSettings:
     ]
 
     # No cron jobs - alerts are triggered by monitoring worker
-    cron_jobs: list = []
+    cron_jobs: list[Any] = []
 
     on_startup = startup_alerting
     on_shutdown = shutdown
