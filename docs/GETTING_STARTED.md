@@ -182,7 +182,9 @@ From this point on, the alerting worker will send you notifications when a monit
 cp .env.test.example .env.test
 ```
 
-Edit `.env.test` to use the test container ports:
+Edit `.env.test` and set host ports for test containers.
+Defaults are `5433` for PostgreSQL and `6380` for Redis.
+If these ports are busy on your machine, choose any free ports and keep `.env.test` in sync.
 
 ```dotenv
 DB__USER=postgres
@@ -205,7 +207,7 @@ ENABLE_FILE_LOGGING=False
 make test-infra-up
 ```
 
-The command starts isolated PostgreSQL (port 5433) and Redis (port 6380) containers with in-RAM storage and waits until both are healthy.
+The command starts isolated PostgreSQL and Redis containers with in-RAM storage and waits until both are healthy. Published host ports are taken from `.env.test` (`DB__PORT` and `REDIS__PORT`).
 
 ### Run the test suite
 
@@ -255,7 +257,7 @@ make docker-clean         # stop + remove containers, volumes, and images (asks 
 The database container may not be ready yet. Run `docker compose ps` — the `database` service should show `healthy`. If it does not, check credentials in `.env`.
 
 **Tests fail with "Redis unavailable"**
-Make sure test containers are running (`make test-infra-up`) and that `.env.test` has `REDIS__PORT=6380`.
+Make sure test containers are running (`make test-infra-up`) and that `.env.test` has the same `REDIS__PORT` value you configured for test containers.
 
 **Telegram alerts are not arriving**
 Check that `TELEGRAM__BOT_TOKEN` is set, the `telegram_chat_id` is linked to your user, and the alerting worker is running:

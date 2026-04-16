@@ -171,10 +171,11 @@ curl -X POST http://localhost/api/monitors/add-urls \
 > For full details, see [docs/testing/TESTING.md](docs/testing/TESTING.md).
 
 ```bash
-# Configure the test env (use ports 5433 / 6380 for the test containers)
+# Configure the test env (defaults: DB__PORT=5433, REDIS__PORT=6380)
 cp .env.test.example .env.test
 
-# Start isolated test containers (postgres:5433, redis:6380)
+# If a port is busy, change DB__PORT/REDIS__PORT in .env.test first
+# Start isolated test containers (uses values from .env.test)
 make test-infra-up
 
 # Run everything

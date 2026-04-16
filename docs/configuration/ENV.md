@@ -83,10 +83,10 @@ Used exclusively by pytest and `docker-compose.test.yml`. The test stack runs on
 | `DB__USER` | any | Must match the user in `docker-compose.test.yml` |
 | `DB__PASS` | any | Must match the password in `docker-compose.test.yml` |
 | `DB__HOST` | `localhost` | Test containers are port-forwarded to the host |
-| `DB__PORT` | `5432` | pytest connects directly to the test DB on **5432** (mapped from 5433 externally) |
+| `DB__PORT` | `5433` | Host port for test PostgreSQL (`docker-compose.test.yml` maps `${DB__PORT:-5433} -> 5432`) |
 | `DB__NAME` | `watchdog_test` | Hard-coded in `docker-compose.test.yml`; **do not change** |
 | `REDIS__HOST` | `localhost` | — |
-| `REDIS__PORT` | `6379` | pytest uses Redis **DB 15** to avoid polluting other databases |
+| `REDIS__PORT` | `6380` | Host port for test Redis (`docker-compose.test.yml` maps `${REDIS__PORT:-6380} -> 6379`); pytest uses Redis **DB 15** |
 | `TELEGRAM__BOT_TOKEN` | any / empty | Tests mock the Telegram client; an actual token is not needed |
 
 > **Why a separate `.env.test`?**
@@ -101,11 +101,11 @@ ENABLE_FILE_LOGGING=False
 DB__USER=postgres
 DB__PASS=postgres
 DB__HOST=localhost
-DB__PORT=5432
+DB__PORT=5433
 DB__NAME=watchdog_test
 
 REDIS__HOST=localhost
-REDIS__PORT=6379
+REDIS__PORT=6380
 
 TELEGRAM__BOT_TOKEN=fake-token-for-tests
 ```

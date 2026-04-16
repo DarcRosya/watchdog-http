@@ -99,10 +99,10 @@ The test containers are port-forwarded to the host:
 
 | Service | Host port | Container port |
 | :--- | :--- | :--- |
-| PostgreSQL (test) | `5433` | `5432` |
-| Redis (test) | `6380` | `6379` |
+| PostgreSQL (test) | `DB__PORT` (default: `5433`) | `5432` |
+| Redis (test) | `REDIS__PORT` (default: `6380`) | `6379` |
 
-Your `.env.test` must point to these host ports:
+Your `.env.test` must point to the host ports you want to use (change defaults if occupied):
 
 ```dotenv
 DB__USER=postgres

@@ -155,28 +155,26 @@ A fully isolated, ephemeral stack. It never shares data or networks with the mai
 
 | Difference | Main stack | Test stack |
 | :--- | :--- | :--- |
-| PostgreSQL port (host) | not exposed | `127.0.0.1:5433` |
-| Redis port (host) | not exposed | `127.0.0.1:6380` |
+| PostgreSQL port (host) | not exposed | `127.0.0.1:${DB__PORT:-5433}` |
+| Redis port (host) | not exposed | `127.0.0.1:${REDIS__PORT:-6380}` |
 | Data storage | named volumes (persistent) | `tmpfs` (in RAM, lost on stop) |
 | Database name | configurable via `.env` | always `watchdog_test` |
 
 > **Why tmpfs?**
 > Tests roll back every transaction via SQLAlchemy savepoints, so no data survives between individual tests anyway. Using RAM storage makes container startup faster and leaves no leftover files.
 
-pytest connects to the test containers through the host ports:
-- DB: `localhost:5432` (pytest.ini maps the container's 5432 as seen from inside the container; the *host* port is 5433 but the conftest builds the URL from env vars pointing to `localhost:5432`)
+pytest runs on the host and connects through forwarded host ports.
+The test containers expose:
+- `127.0.0.1:${DB__PORT:-5433} → container:5432`
+- `127.0.0.1:${REDIS__PORT:-6380} → container:6379`
 
-Wait — let me clarify: pytest runs on the host. The test containers expose:
-- `127.0.0.1:5433 → container:5432`
-- `127.0.0.1:6380 → container:6379`
-
-So `.env.test` must have:
+So `.env.test` should have matching values:
 ```dotenv
 DB__PORT=5433
 REDIS__PORT=6380
 ```
 
-> **Note:** The conftest reads `DB__PORT` from the environment and builds the asyncpg connection URL from it. Make sure `.env.test` maps to the forwarded host ports.
+> **Note:** If `5433` or `6380` is already occupied, set any free ports in `.env.test` and use the same values when starting test infrastructure.
 
 ### Common commands
 
