@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any, Callable, List, Literal, cast
 
+import httpx  # type: ignore # noqa: F401 - imported for tests that monkeypatch src.services.monitor httpx
 import redis.asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -56,7 +56,7 @@ test: ## Run all tests (requires test infra: make test-infra-up)
 	poetry -C src run pytest tests
 	@printf "$(GREEN)✓ Tests complete$(NC)\n"
 
-test-infra-up: ## Start isolated test containers (postgres:5433, redis:6380)
+test-infra-up: ## Start isolated test containers (postgres:$${DB__PORT:-5433}, redis:$${REDIS__PORT:-6380})
 	@printf "$(BLUE)Starting test infrastructure...$(NC)\n"
 	docker compose -f docker-compose.test.yml --env-file .env.test up -d
 	@printf "$(BLUE)Waiting for containers to become healthy...$(NC)\n"
@@ -64,7 +64,7 @@ test-infra-up: ## Start isolated test containers (postgres:5433, redis:6380)
 		db_status=$$(docker inspect --format='{{.State.Health.Status}}' watchdog_test_db 2>/dev/null); \
 		redis_status=$$(docker inspect --format='{{.State.Health.Status}}' watchdog_test_redis 2>/dev/null); \
 		if [ "$$db_status" = "healthy" ] && [ "$$redis_status" = "healthy" ]; then \
-			printf "$(GREEN)✓ Test infrastructure ready (postgres:5433, redis:6380)$(NC)\n"; \
+			printf "$(GREEN)✓ Test infrastructure ready (postgres:%s, redis:%s)$(NC)\n" "$${DB__PORT:-5433}" "$${REDIS__PORT:-6380}"; \
 			exit 0; \
 		fi; \
 		printf "  waiting... db=$$db_status redis=$$redis_status\n"; \

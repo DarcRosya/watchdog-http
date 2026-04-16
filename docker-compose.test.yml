@@ -14,7 +14,7 @@ services:
       POSTGRES_PASSWORD: ${DB__PASS}
       POSTGRES_DB: watchdog_test
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${DB__PORT:-5433}:5432"
     tmpfs:
       - /var/lib/postgresql/data   # data lives only in RAM, gone on stop
     healthcheck:
@@ -27,7 +27,7 @@ services:
     image: redis:7-alpine
     container_name: watchdog_test_redis
     ports:
-      - "127.0.0.1:6380:6379"
+      - "127.0.0.1:${REDIS__PORT:-6380}:6379"
     tmpfs:
       - /data
     healthcheck:
