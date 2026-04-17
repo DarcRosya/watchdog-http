@@ -20,13 +20,13 @@ RUN curl -sSL https://install.python-poetry.org | python3 -
 
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock* ./
+COPY ui/pyproject.toml ui/poetry.lock* ./
 
 RUN poetry install --no-root --no-interaction --no-ansi --without dev\
     && rm -rf $POETRY_CACHE_DIR
 
 # Copy application
-COPY app.py .
+COPY ui/ .
 
 EXPOSE 8501
 

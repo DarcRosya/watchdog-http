@@ -44,9 +44,10 @@ services:
   migrator:
     build:
       context: .
-      dockerfile: Dockerfile.migrator
+      dockerfile: src/Dockerfile
+      target: prod
     container_name: watchdog_migrator
-    command: alembic upgrade head
+    command: alembic -c src/alembic.ini upgrade head
     restart: "no"
     env_file:
       - .env
@@ -57,7 +58,10 @@ services:
         condition: service_healthy
 
   app:
-    build: ./src
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: prod
     container_name: watchdog_app
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
@@ -72,7 +76,7 @@ services:
       database:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       migrator:
         condition: service_completed_successfully
     volumes:
@@ -86,7 +90,10 @@ services:
           memory: 128M
 
   scheduler-worker:
-    build: ./src
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: prod
     container_name: watchdog_scheduler_worker
     command: arq src.worker.scheduler.SchedulerWorkerSettings
     restart: unless-stopped
@@ -113,7 +120,10 @@ services:
           memory: 64M
 
   monitoring-worker:
-    build: ./src
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: prod
     # container_name: watchdog_monitoring_worker
     command: arq src.worker.monitoring.MonitoringWorkerSettings
     restart: unless-stopped
@@ -143,7 +153,10 @@ services:
 
 
   alerting-worker:
-    build: ./src
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: prod
     container_name: watchdog_alerting_worker
     command: arq src.worker.alerting.AlertingWorkerSettings
     restart: unless-stopped
@@ -170,7 +183,10 @@ services:
           memory: 64M
 
   telegram-bot:
-    build: ./src
+    build:
+      context: .
+      dockerfile: src/Dockerfile
+      target: prod
     container_name: watchdog_telegram
     command: python -m src.telegram.bot
     restart: unless-stopped
@@ -182,8 +198,6 @@ services:
     depends_on:
       database:
         condition: service_healthy
-    volumes:
-      - ./src:/app/src
     deploy:
       resources:
         limits:
@@ -193,7 +207,9 @@ services:
           memory: 32M
 
   ui:
-    build: ./ui
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
     container_name: watchdog_ui
     restart: unless-stopped
     expose:

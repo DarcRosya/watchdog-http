@@ -11,16 +11,26 @@
 
 services:
   app:
+    build:
+      target: dev
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./src:/app/src
 
   monitoring-worker:
+    build:
+      target: dev
     command: arq src.worker.monitoring.MonitoringWorkerSettings --watch src
     volumes:
       - ./src:/app/src
 
   alerting-worker:
+    build:
+      target: dev
     command: arq src.worker.alerting.AlertingWorkerSettings --watch src
+    volumes:
+      - ./src:/app/src
+
+  telegram-bot:
     volumes:
       - ./src:/app/src

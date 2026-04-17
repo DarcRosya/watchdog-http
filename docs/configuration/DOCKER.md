@@ -32,6 +32,14 @@ alerting-worker   → database, redis
 telegram-bot      → database
 ```
 
+### Build Strategy
+
+- Backend services (`app`, `migrator`, workers, `telegram-bot`) build from project root context (`.`) using `src/Dockerfile` and `target: prod`.
+- `migrator` reuses the same backend image and runs `alembic -c src/alembic.ini upgrade head`.
+- `ui` builds from project root context (`.`) with `ui/Dockerfile`.
+- Development mode overrides backend `target` to `dev` in `docker-compose.override.yml` so `--reload` / `--watch` dependencies are present.
+- Production compose keeps backend containers immutable; source bind mounts are only in development override.
+
 ### Services
 
 #### `database` — TimescaleDB
@@ -131,7 +139,8 @@ What it adds on top of the base file:
 | `app` | `--reload` flag for hot reload |
 | `monitoring-worker` | `--watch src` for auto-restart on code changes |
 | `alerting-worker` | `--watch src` for auto-restart on code changes |
-| All three | Bind mount `./src:/app/src` so local edits are picked up immediately |
+| `telegram-bot` | Bind mount `./src:/app/src` for local bot code edits |
+| `app`, `monitoring-worker`, `alerting-worker` | Bind mount `./src:/app/src` so local edits are picked up immediately |
 
 To enable:
 
