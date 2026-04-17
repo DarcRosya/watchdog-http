@@ -2,6 +2,7 @@
 .gitignore
 **/.vscode
 
+.venv
 venv/
 __pycache__/
 *.pyc
@@ -13,13 +14,16 @@ pip-log.txt
 pip-delete-this-directory.txt
 .coverage
 .tox/
+.mypy_cache/
 .pytest_cache/
+.ruff_cache/
 
 Dockerfile*
 docker-compose*
 .env*
 *.md
 
-
+nginx/
 docs/
-logs/*.json
+scripts/
+tests/
