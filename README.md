@@ -85,18 +85,18 @@ This project is designed for Unix-like environments (Linux and macOS). Native Wi
 
 ```
 watchdog-http/
-├── src/                        # Main application (FastAPI + workers)
-│   ├── config/                 # Settings (pydantic-settings)
-│   ├── core/                   # DB engine, dependencies, logging
+├── src/                        # Main backend application (FastAPI + workers)
+│   ├── api/                    # FastAPI API layer (dependencies + endpoints)
+│   ├── core/                   # Shared infrastructure (db, redis, logging, settings)
 │   ├── models/                 # SQLAlchemy ORM models
 │   ├── repositories/           # DB access layer
 │   ├── services/               # Business logic
-│   ├── routes/                 # FastAPI routers
 │   ├── schemas/                # Pydantic schemas
 │   ├── worker/                 # ARQ workers (monitoring + alerting)
 │   ├── telegram/               # Telegram notifier + interactive bot
 │   ├── migrations/             # Alembic versions
-│   └── tests/                  # Unit + integration tests
+│   └── utils/                  # Shared helpers (time, SSL checker, generators)
+├── tests/                      # Unit + integration tests
 ├── ui/                         # Streamlit dashboard
 ├── nginx/                      # Nginx config + Dockerfile
 ├── docs/                       # Project documentation
