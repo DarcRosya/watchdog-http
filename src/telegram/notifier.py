@@ -2,8 +2,8 @@ from enum import Enum
 
 import httpx
 
-from src.config.settings import settings
 from src.core.logging import get_logger
+from src.core.settings import settings
 
 logger = get_logger("telegram")
 

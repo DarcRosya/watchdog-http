@@ -1,14 +1,14 @@
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-from alembic import context
 
 from src.core.database import Base
-from src.config.settings import settings
-from src.models import User, Monitor, ResultLog
+from src.core.settings import settings
+from src.models import Monitor, ResultLog, User  # type: ignore # noqa: F401
 
 config = context.config
 

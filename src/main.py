@@ -2,10 +2,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from src.config.settings import settings
+from src.api.endpoints import monitors, users
 from src.core.logging import configure_logging, get_logger
 from src.core.redis import create_redis_client
-from src.routes import users, monitors
+from src.core.settings import settings
 
 # from src.utils.version import __version__
 

@@ -7,7 +7,7 @@ import httpx
 from arq.connections import ArqRedis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.config.settings import settings
+from src.core.settings import settings
 from src.models.monitor import Monitor
 from src.models.resultlog import ResultLog
 from src.models.user import User

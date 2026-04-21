@@ -1,10 +1,10 @@
 from typing import Annotated, AsyncGenerator
 
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from src.config.settings import settings
+from src.core.settings import settings
 
 engine = create_async_engine(
     url=settings.db.DATABASE_URL,

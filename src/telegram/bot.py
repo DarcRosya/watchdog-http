@@ -7,10 +7,10 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy import select, update
 
-from src.config.settings import settings
 from src.core.database import async_session_factory
 from src.core.logging import configure_logging, get_logger
 from src.core.redis import create_redis_client
+from src.core.settings import settings
 from src.models.monitor import Monitor
 from src.models.user import User
 

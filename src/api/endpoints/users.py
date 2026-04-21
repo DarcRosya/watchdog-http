@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
+from src.api.dependencies import CurrentUser, RedisClient
 from src.core.database import DBSession
-from src.core.dependencies import CurrentUser, RedisClient
 from src.core.logging import get_logger
 from src.models.user import User
 from src.schemas.auth import AuthRequest, AuthResponse

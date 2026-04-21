@@ -2,8 +2,8 @@ from typing import Any, List
 
 from fastapi import APIRouter, HTTPException, status
 
+from src.api.dependencies import CurrentUser, RedisClient
 from src.core.database import DBSession
-from src.core.dependencies import CurrentUser, RedisClient
 from src.core.logging import get_logger
 from src.models.monitor import Monitor
 from src.schemas.monitor import (

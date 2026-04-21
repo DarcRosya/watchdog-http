@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from arq import cron
 
-from src.config.settings import settings
+from src.core.settings import settings
 from src.models.monitor import Monitor
 from src.worker.lifecycle import (
     WorkerContext,

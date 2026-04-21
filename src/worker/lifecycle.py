@@ -7,9 +7,9 @@ from arq.connections import ArqRedis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.config.settings import settings
 from src.core.database import async_session_factory
 from src.core.logging import configure_logging, get_logger
+from src.core.settings import settings
 from src.models.monitor import Monitor
 from src.models.resultlog import ResultLog
 from src.models.user import User

@@ -1,6 +1,6 @@
 from typing import Any
 
-from src.config.settings import settings
+from src.core.settings import settings
 from src.telegram.notifier import (
     AlertType,
     TelegramNotifier,

@@ -3,12 +3,11 @@ import os
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock
 
-from pydantic import SecretStr
-
 import pytest
 import redis.asyncio as aioredis
 from faker import Faker
 from httpx import ASGITransport, AsyncClient
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -16,8 +15,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from src.config.settings import DatabaseSettings
 from src.core.database import Base
+from src.core.settings import DatabaseSettings
 from src.main import app
 from src.models.monitor import Monitor
 from src.models.user import User
@@ -152,8 +151,8 @@ async def client(
     db_session: AsyncSession, redis_client: aioredis.Redis
 ) -> AsyncGenerator[AsyncClient, None]:
     """Create HTTP test client with both DB and Redis overridden."""
+    from src.api.dependencies import get_redis
     from src.core.database import get_async_session
-    from src.core.dependencies import get_redis
 
     async def override_get_db():
         yield db_session
