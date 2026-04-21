@@ -6,7 +6,7 @@ from pathlib import Path
 class VersionManager:
     """Manages version synchronization across project files."""
 
-    def __init__(self, project_root: Path = None):
+    def __init__(self, project_root: Path | None = None) -> None:
         if project_root is None:
             project_root = Path(__file__).parent.parent
         self.project_root = project_root
@@ -37,7 +37,7 @@ class VersionManager:
         new_content = re.sub(
             r"(badge/version-)(\d+\.\d+\.\d+)",
             rf"\g<1>{version}",
-            content
+            content,
         )
 
         if content != new_content:
@@ -53,10 +53,10 @@ class VersionManager:
 
         content = self.pyproject_path.read_text()
         new_content = re.sub(
-            r'^(version\s*=\s*")[^"]+(")' ,
-            rf'\g<1>{version}\g<2>',
+            r'^(version\s*=\s*")[^"]+(")',
+            rf"\g<1>{version}\g<2>",
             content,
-            flags=re.MULTILINE
+            flags=re.MULTILINE,
         )
 
         if content != new_content:
@@ -72,9 +72,7 @@ class VersionManager:
 
         content = self.main_path.read_text()
         new_content = re.sub(
-            r'(version\s*=\s*")[^"]+(")' ,
-            rf'\g<1>{version}\g<2>',
-            content
+            r'(version\s*=\s*")[^"]+(")', rf"\g<1>{version}\g<2>", content
         )
 
         if content != new_content:
@@ -99,7 +97,7 @@ class VersionManager:
         return changed
 
 
-def main():
+def main() -> None:
     if len(sys.argv) != 2:
         print("Usage: python scripts/sync_version.py <version>")
         print("Example: python scripts/sync_version.py 1.6.0")
@@ -124,8 +122,8 @@ def main():
 
         sys.exit(0)
 
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
+    except Exception as error:
+        print(f"\n❌ Error: {error}")
         sys.exit(1)
 
 
