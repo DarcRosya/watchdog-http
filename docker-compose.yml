@@ -206,24 +206,6 @@ services:
         reservations:
           memory: 32M
 
-  ui:
-    build:
-      context: .
-      dockerfile: ui/Dockerfile
-    container_name: watchdog_ui
-    restart: unless-stopped
-    expose:
-      - "8501"
-    depends_on:
-      - app
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
-        reservations:
-          memory: 64M
-
   nginx:
     build: ./nginx
     container_name: watchdog_nginx
@@ -232,7 +214,6 @@ services:
       - "80:80"
     depends_on:
       - app
-      - ui
     deploy:
       resources:
         limits:

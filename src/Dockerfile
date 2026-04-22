@@ -22,7 +22,7 @@ RUN curl -sSL https://install.python-poetry.org | python3 -
 
 WORKDIR /app
 
-COPY src/pyproject.toml src/poetry.lock ./
+COPY pyproject.toml poetry.lock ./
 
 # ── production image ──────────────────────────────────────────────────────────
 FROM base AS prod
