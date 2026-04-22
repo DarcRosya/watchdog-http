@@ -3,7 +3,7 @@ repos:
     rev: 24.10.0
     hooks:
       - id: black
-        files: ^(src|ui)/.*\.py$
+        files: ^(src|tests|scripts)/.*\.py$
 
   # Basic file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -21,7 +21,7 @@ repos:
     hooks:
       - id: mypy
         name: mypy type check
-        entry: bash -c 'cd src && poetry run mypy .'
+        entry: poetry run mypy src
         language: system
         pass_filenames: false
         always_run: true

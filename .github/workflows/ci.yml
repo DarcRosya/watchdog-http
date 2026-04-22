@@ -30,9 +30,7 @@ jobs:
         with:
           path: |
             ~/.cache/pypoetry
-            src/.venv
-            ui/.venv
-          key: ${{ runner.os }}-poetry-${{ hashFiles('src/poetry.lock', 'ui/poetry.lock') }}
+          key: ${{ runner.os }}-poetry-${{ hashFiles('poetry.lock') }}
           restore-keys: |
             ${{ runner.os }}-poetry-
 
@@ -40,9 +38,7 @@ jobs:
         run: make install
 
       - name: Check code formatting
-        run: |
-          (cd src && poetry run black --check .)
-          (cd ui && poetry run black --check .)
+        run: poetry run black --check src tests scripts
 
       - name: Run linters
         run: make lint
@@ -95,13 +91,12 @@ jobs:
         with:
           path: |
             ~/.cache/pypoetry
-            src/.venv
-          key: ${{ runner.os }}-poetry-test-${{ hashFiles('src/poetry.lock') }}
+          key: ${{ runner.os }}-poetry-test-${{ hashFiles('poetry.lock') }}
           restore-keys: |
             ${{ runner.os }}-poetry-test-
 
       - name: Install dependencies
-        run: cd src && poetry install
+        run: poetry install
 
       - name: Run tests
         env:
@@ -113,7 +108,7 @@ jobs:
           REDIS__HOST: localhost
           REDIS__PORT: "6379"
           TELEGRAM__BOT_TOKEN: "dummy_token_for_ci_tests"
-        run: poetry -C src run pytest ../tests -m "not skip_ci"
+        run: poetry run pytest tests -m "not skip_ci"
 
   version-sync-check:
     name: Version Sync Check
@@ -130,11 +125,16 @@ jobs:
 
       - name: Check version consistency
         run: |
-          VERSION=$(grep '^version = ' src/pyproject.toml | cut -d'"' -f2)
+          VERSION=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
           echo "Main version: $VERSION"
 
-          if ! grep -q "version = \"$VERSION\"" src/pyproject.toml; then
-            echo "Version mismatch in src/pyproject.toml"
+          if ! grep -Eq "version\s*=\s*\"$VERSION\"" src/main.py; then
+            echo "Version mismatch in src/main.py"
+            exit 1
+          fi
+
+          if ! grep -q "badge/version-$VERSION-" README.md; then
+            echo "Version mismatch in README.md badge"
             exit 1
           fi
 
