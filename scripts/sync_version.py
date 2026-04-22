@@ -13,7 +13,7 @@ class VersionManager:
 
         # Files to sync
         self.readme_path = project_root / "README.md"
-        self.pyproject_path = project_root / "src" / "pyproject.toml"
+        self.pyproject_path = project_root / "pyproject.toml"
         self.main_path = project_root / "src" / "main.py"
 
     def validate_version(self, version: str) -> bool:
