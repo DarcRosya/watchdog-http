@@ -17,33 +17,29 @@ help: ## Show this help message
 
 install: ## Install dependencies with Poetry
 	@printf "$(BLUE)Installing dependencies...$(NC)\n"
-	cd src && poetry install
-	cd ui && poetry install
+	poetry install
 	@printf "$(GREEN)✓ Dependencies installed$(NC)\n"
 
 lock: ## Update poetry.lock files
 	@printf "$(BLUE)Updating lock files...$(NC)\n"
-	cd src && poetry lock --no-update
-	cd ui && poetry lock --no-update
+	poetry lock --no-update
 	@printf "$(GREEN)✓ Lock files updated$(NC)\n"
 
 update: ## Update dependencies to latest versions
 	@printf "$(BLUE)Updating dependencies...$(NC)\n"
-	cd src && poetry update
-	cd ui && poetry update
+	poetry update
 	@printf "$(GREEN)✓ Dependencies updated$(NC)\n"
 
 ## Code Quality
 
 lint: ## Run linters (mypy type checking)
 	@printf "$(BLUE)Running type checks...$(NC)\n"
-	cd src && poetry run mypy .
+	poetry run mypy src
 	@printf "$(GREEN)✓ Lint complete$(NC)\n"
 
 format: ## Format code with black
 	@printf "$(BLUE)Formatting code...$(NC)\n"
-	cd src && poetry run black .
-	cd ui && poetry run black .
+	poetry run black src tests scripts
 	@printf "$(GREEN)✓ Code formatted$(NC)\n"
 
 check: format lint ## Run all checks (format + lint)
@@ -53,7 +49,7 @@ check: format lint ## Run all checks (format + lint)
 
 test: ## Run all tests (requires test infra: make test-infra-up)
 	@printf "$(BLUE)Running all tests...$(NC)\n"
-	poetry -C src run pytest tests
+	poetry run pytest tests
 	@printf "$(GREEN)✓ Tests complete$(NC)\n"
 
 test-infra-up: ## Start isolated test containers (postgres:$${DB__PORT:-5433}, redis:$${REDIS__PORT:-6380})
@@ -79,7 +75,7 @@ test-infra-down: ## Stop and remove isolated test containers (data is discarded)
 
 test-cov: ## Run tests with coverage report
 	@printf "$(BLUE)Running tests with coverage...$(NC)\n"
-	poetry -C src run pytest tests --cov=src --cov-report=term-missing --cov-report=html
+	poetry run pytest tests --cov=src --cov-report=term-missing --cov-report=html
 	@printf "$(GREEN)✓ Coverage report generated in htmlcov/$(NC)\n"
 
 
@@ -124,7 +120,7 @@ docker-up: ## Start all services with Docker Compose
 	docker compose up -d
 	@printf "$(GREEN)✓ Services started$(NC)\n"
 	@printf "API: http://localhost:8000\n"
-	@printf "UI: http://localhost:8501\n"
+	@printf "Docs: http://localhost/docs\n"
 
 docker-down: ## Stop all Docker services
 	@printf "$(BLUE)Stopping Docker services...$(NC)\n"
@@ -154,12 +150,12 @@ docker-clean: ## Remove all containers, volumes and images
 
 pre-commit: ## Install pre-commit hooks
 	@printf "$(BLUE)Installing pre-commit hooks...$(NC)\n"
-	cd src && poetry run pre-commit install
+	poetry run pre-commit install
 	@printf "$(GREEN)✓ Pre-commit hooks installed$(NC)\n"
 
 pre-commit-run: ## Run pre-commit on all files
 	@printf "$(BLUE)Running pre-commit hooks...$(NC)\n"
-	cd src && poetry run pre-commit run --all-files
+	poetry run pre-commit run --all-files
 	@printf "$(GREEN)✓ Pre-commit checks complete$(NC)\n"
 
 commit: ## Smart commit: format + add all changes + open editor
@@ -236,11 +232,10 @@ setup: install pre-commit upgrade ## Complete setup (install + pre-commit + migr
 info: ## Show project information
 	@printf "$(BLUE)Project Information$(NC)\n"
 	@printf "  Name: Watchdog HTTP\n"
-	@printf "  Version: %s\n" "$$(grep '^version' src/pyproject.toml | cut -d'"' -f2)"
-	@printf "  Python: %s\n" "$$(cd src && poetry run python --version)"
+	@printf "  Version: %s\n" "$$(grep '^version' pyproject.toml | cut -d'"' -f2)"
+	@printf "  Python: %s\n" "$$(poetry run python --version)"
 	@printf "\n"
 	@printf "$(BLUE)Services$(NC)\n"
 	@printf "  API: http://localhost:8000\n"
 	@printf "  Docs: http://localhost:8000/docs\n"
-	@printf "  UI: http://localhost:8501\n"
 	@printf "\n"
