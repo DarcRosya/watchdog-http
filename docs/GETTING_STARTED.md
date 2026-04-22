@@ -8,7 +8,7 @@ This guide walks through every step needed to get Watchdog running — from clon
 
 | Dependency | Minimum version | Notes |
 | :--- | :--- | :--- |
-| Python | 3.12 | Managed by Poetry inside `src/` |
+| Python | 3.12 | Managed by Poetry from project root |
 | Poetry | 1.8+ | `pip install poetry` |
 | Docker | 24+ | Required for the full stack |
 | Docker Compose | v2 (`docker compose`) | Shipped with modern Docker Desktop |
@@ -26,7 +26,7 @@ cd watchdog-http
 make install
 ```
 
-`make install` runs `poetry install` inside both `src/` and `ui/`.
+`make install` runs a single `poetry install` from the project root.
 
 Optionally install pre-commit hooks (runs Black + mypy before every commit):
 
@@ -89,9 +89,10 @@ This builds all images (first run) and starts:
 | Service | Accessible at |
 | :--- | :--- |
 | Nginx (entry point) | http://localhost:80 |
-| Streamlit dashboard | http://localhost:80/ |
+| Root redirect | http://localhost:80/ -> /docs |
 | FastAPI (via Nginx) | http://localhost:80/api/ |
 | Swagger UI | http://localhost:80/docs |
+| ReDoc | http://localhost:80/redoc |
 | Raw FastAPI (direct) | http://localhost:8000 — only if override file adds port forwarding |
 
 Wait a few seconds for the database health check to pass, then the API and workers will start automatically.

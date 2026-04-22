@@ -17,13 +17,13 @@ The project ships three Compose files that cover every scenario.
 
 ## `docker-compose.yml` — Production Stack
 
-Defines seven services. All internal communication goes over the Docker network by service name. No host ports are exposed except Nginx on `:80`.
+Defines nine services. All internal communication goes over the Docker network by service name. No host ports are exposed except Nginx on `:80`.
 
 ```
 Internet → Nginx :80
                ├── /api/*         → app :8000  (FastAPI)
                ├── /docs, /redoc  → app :8000
-               └── /              → ui  :8501  (Streamlit)
+               └── /              → 302 /docs
 
 app            → database :5432  (TimescaleDB)
 app            → redis    :6379
@@ -36,7 +36,6 @@ telegram-bot      → database
 
 - Backend services (`app`, `migrator`, workers, `telegram-bot`) build from project root context (`.`) using `src/Dockerfile` and `target: prod`.
 - `migrator` reuses the same backend image and runs `alembic -c src/alembic.ini upgrade head`.
-- `ui` builds from project root context (`.`) with `ui/Dockerfile`.
 - Development mode overrides backend `target` to `dev` in `docker-compose.override.yml` so `--reload` / `--watch` dependencies are present.
 - Production compose keeps backend containers immutable; source bind mounts are only in development override.
 
@@ -103,14 +102,6 @@ command: python -m src.telegram.bot
 
 - Provides a Telegram bot interface for querying monitor status.
 
-#### `ui` — Streamlit Dashboard
-
-```yaml
-container_name: watchdog_ui
-```
-
-- Internal only (`:8501`); routed from Nginx root `/`.
-
 #### `nginx` — Reverse Proxy
 
 ```yaml
@@ -123,7 +114,7 @@ ports:
 - Routes traffic:
   - `/api/*` → FastAPI
   - `/docs`, `/redoc`, `/openapi.json` → FastAPI
-  - `/` → Streamlit
+  - `/` → Redirect to `/docs`
   - `/health` → 200 OK (no upstream hit)
 
 ---
@@ -212,5 +203,4 @@ All services have explicit CPU and memory limits (`deploy.resources.limits`). Th
 | monitoring-worker | 0.5 | 384 MB |
 | alerting-worker | 0.25 | 128 MB |
 | telegram-bot | 0.25 | 128 MB |
-| ui | 0.25 | 256 MB |
 | nginx | 0.25 | 64 MB |

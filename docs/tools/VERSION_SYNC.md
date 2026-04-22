@@ -4,7 +4,7 @@
 
 Automatically updates project version in multiple files at once:
 - `README.md` - project header
-- `src/pyproject.toml` - Poetry package version  
+- `pyproject.toml` - Poetry package version  
 - `src/main.py` - FastAPI app version
 
 ## Usage
@@ -14,7 +14,7 @@ Automatically updates project version in multiple files at once:
 python scripts/sync_version.py 1.6.0
 
 # Or via Makefile
-make sync-version VERSION=1.6.0
+make sync-version SET=1.6.0
 
 # Show current version
 python scripts/sync_version.py
@@ -35,7 +35,7 @@ Uses **Semantic Versioning** (X.Y.Z):
 
 ### Release new feature
 ```bash
-make sync-version VERSION=1.6.0
+make sync-version SET=1.6.0
 git add .
 git commit -m "Release v1.6.0: Add real-time alerts"
 git tag v1.6.0
@@ -44,14 +44,14 @@ git push --tags
 
 ### Bug fix
 ```bash
-make sync-version VERSION=1.5.1
+make sync-version SET=1.5.1
 git add .
 git commit -m "Fix timeout handling"
 ```
 
 ### Breaking change
 ```bash
-make sync-version VERSION=2.0.0
+make sync-version SET=2.0.0
 git add .
 git commit -m "New API structure"
 ```

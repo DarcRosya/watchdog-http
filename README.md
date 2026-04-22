@@ -18,7 +18,7 @@
 - **Instant Telegram alerts** — down / recovery notifications sent by a dedicated alerting worker, fully decoupled from the check loop.
 - **Time-series metrics** — latency and status codes stored in TimescaleDB for historical analysis.
 - **REST API + Swagger UI** — manage monitors and users through a documented FastAPI interface.
-- **Streamlit dashboard** — real-time visualization of monitor health and historical trends.
+- **Single entrypoint via Nginx** — API traffic is routed through `/api/*`, and `/` redirects to `/docs`.
 - **Structured JSON logging** — every worker and API event is machine-readable; pipe through `jq` out of the box.
 - **Full test suite** — 204 tests (unit + integration), `mypy`-clean, `black`-formatted.
 
@@ -69,7 +69,6 @@
 | Cache / Queue | **Redis 7** | Job queue, monitor config cache, state tracking |
 | HTTP client | **httpx** | Async HTTP health checks |
 | Notifications | **Telegram Bot API + aiogram** | Alert delivery, interactive bot |
-| Dashboard | **Streamlit** | Visual monitoring interface |
 | Reverse proxy | **Nginx** | Traffic routing, single entry point |
 | Validation | **Pydantic V2** | Data modeling and settings |
 | Logging | **structlog** | Structured JSON logs |
@@ -97,7 +96,6 @@ watchdog-http/
 │   ├── migrations/             # Alembic versions
 │   └── utils/                  # Shared helpers (time, SSL checker, generators)
 ├── tests/                      # Unit + integration tests
-├── ui/                         # Streamlit dashboard
 ├── nginx/                      # Nginx config + Dockerfile
 ├── docs/                       # Project documentation
 ├── scripts/                    # Utility scripts (version sync)
@@ -159,8 +157,9 @@ curl -X POST http://localhost/api/monitors/add-urls \
 
 | Service | URL |
 | :--- | :--- |
-| Streamlit dashboard | http://localhost/ |
+| Root (redirect) | http://localhost/ -> /docs |
 | Swagger UI | http://localhost/docs |
+| ReDoc | http://localhost/redoc |
 | API | http://localhost/api/ |
 | Health check | http://localhost/health |
 
@@ -185,7 +184,7 @@ make test
 make test-cov
 
 # Unit tests only (no Docker required)
-cd src && poetry run pytest tests -m unit
+poetry run pytest tests -m unit
 ```
 
 ---

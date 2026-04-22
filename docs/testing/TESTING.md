@@ -44,13 +44,13 @@ Markers are declared in `pytest.ini` and can be used to run subsets.
 
 ```bash
 # Run only unit tests
-cd src && poetry run pytest tests -m unit
+poetry run pytest tests -m unit
 
 # Run only repository tests
-cd src && poetry run pytest tests -m repository
+poetry run pytest tests -m repository
 
 # Run only API tests
-cd src && poetry run pytest tests -m api
+poetry run pytest tests -m api
 ```
 
 ---
@@ -59,10 +59,10 @@ cd src && poetry run pytest tests -m api
 
 ### Python environment
 
-All development dependencies (pytest, pytest-asyncio, faker, httpx, etc.) are declared in `src/pyproject.toml` under `[tool.poetry.group.dev.dependencies]`.
+All development dependencies (pytest, pytest-asyncio, faker, httpx, etc.) are declared in `pyproject.toml` under `[tool.poetry.group.dev.dependencies]`.
 
 ```bash
-make install      # installs both src/ and ui/ dependencies via Poetry
+make install      # installs project dependencies via Poetry
 ```
 
 ### Environment file
@@ -84,7 +84,7 @@ Unit tests mock all I/O and can run immediately after installing dependencies.
 make test               # runs full suite (unit + integration)
 
 # or target just units
-cd src && poetry run pytest tests/unit -v
+poetry run pytest tests/unit -v
 ```
 
 ---
@@ -205,7 +205,7 @@ All shared fixtures live in `src/tests/conftest.py`.
 make test-cov
 ```
 
-Generates a terminal report and an HTML report at `src/htmlcov/index.html`.
+Generates a terminal report and an HTML report at `htmlcov/index.html`.
 
 ---
 

@@ -140,7 +140,7 @@ target: dependencies  ## Command description
 ```makefile
 dev: ## Run development server with auto-reload
 	@printf "$(BLUE)Starting development server...$(NC)\n"
-	cd src && poetry run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+	poetry run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 What happens when calling `make dev`:
