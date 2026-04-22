@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from src.api.endpoints import monitors, users
 from src.core.logging import configure_logging, get_logger
@@ -57,6 +58,13 @@ app = FastAPI(
 
 app.include_router(users.router)
 app.include_router(monitors.router)
+
+
+Instrumentator(
+    excluded_handlers=["/metrics", "/health", "/docs", "/redoc", "/openapi.json"],
+).instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False, tags=["System"]
+)
 
 
 @app.get("/health", tags=["System"])
