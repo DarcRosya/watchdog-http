@@ -22,7 +22,7 @@ install: ## Install dependencies with Poetry
 
 lock: ## Update poetry.lock files
 	@printf "$(BLUE)Updating lock files...$(NC)\n"
-	poetry lock --no-update
+	poetry lock
 	@printf "$(GREEN)✓ Lock files updated$(NC)\n"
 
 update: ## Update dependencies to latest versions
