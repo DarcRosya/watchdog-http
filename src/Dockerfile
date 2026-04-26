@@ -23,6 +23,7 @@ RUN curl -sSL https://install.python-poetry.org | python3 -
 WORKDIR /app
 
 COPY pyproject.toml poetry.lock ./
+COPY alembic.ini ./
 
 # ── production image ──────────────────────────────────────────────────────────
 FROM base AS prod

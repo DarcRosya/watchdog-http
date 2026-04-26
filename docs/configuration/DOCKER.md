@@ -35,7 +35,7 @@ telegram-bot      → database
 ### Build Strategy
 
 - Backend services (`app`, `migrator`, workers, `telegram-bot`) build from project root context (`.`) using `src/Dockerfile` and `target: prod`.
-- `migrator` reuses the same backend image and runs `alembic -c src/alembic.ini upgrade head`.
+- `migrator` reuses the same backend image and runs `alembic -c alembic.ini upgrade head`.
 - Development mode overrides backend `target` to `dev` in `docker-compose.override.yml` so `--reload` / `--watch` dependencies are present.
 - Production compose keeps backend containers immutable; source bind mounts are only in development override.
 

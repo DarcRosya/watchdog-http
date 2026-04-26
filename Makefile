@@ -85,24 +85,24 @@ test-cov: ## Run tests with coverage report
 migrate: ## Create a new migration
 	@printf "$(BLUE)Creating new migration...$(NC)\n"
 	@read -p "Migration message: " msg; \
-	cd src && PYTHONPATH=.. poetry run alembic revision --autogenerate -m "$$msg"
+	PYTHONPATH=. poetry run alembic -c alembic.ini revision --autogenerate -m "$$msg"
 	@printf "$(GREEN)✓ Migration created$(NC)\n"
 
 upgrade: ## Upgrade database to latest migration
 	@printf "$(BLUE)Upgrading database...$(NC)\n"
-	cd src && PYTHONPATH=.. poetry run alembic upgrade head
+	PYTHONPATH=. poetry run alembic -c alembic.ini upgrade head
 	@printf "$(GREEN)✓ Database upgraded$(NC)\n"
 
 downgrade: ## Downgrade database by one revision
 	@printf "$(BLUE)Downgrading database...$(NC)\n"
-	cd src && PYTHONPATH=.. poetry run alembic downgrade -1
+	PYTHONPATH=. poetry run alembic -c alembic.ini downgrade -1
 	@printf "$(GREEN)✓ Database downgraded$(NC)\n"
 
 db-reset: ## Reset database (downgrade all + upgrade head)
 	@printf "$(YELLOW)⚠ This will reset the database!$(NC)\n"
 	@read -p "Are you sure? [y/N] " confirm; \
 	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
-		cd src && PYTHONPATH=.. poetry run alembic downgrade base && PYTHONPATH=.. poetry run alembic upgrade head; \
+		PYTHONPATH=. poetry run alembic -c alembic.ini downgrade base && PYTHONPATH=. poetry run alembic -c alembic.ini upgrade head; \
 		printf "$(GREEN)✓ Database reset complete$(NC)\n"; \
 	else \
 		printf "$(RED)Aborted$(NC)\n"; \

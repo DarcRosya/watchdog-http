@@ -47,7 +47,7 @@ services:
       dockerfile: src/Dockerfile
       target: prod
     container_name: watchdog_migrator
-    command: alembic -c src/alembic.ini upgrade head
+    command: alembic -c alembic.ini upgrade head
     restart: "no"
     env_file:
       - .env
