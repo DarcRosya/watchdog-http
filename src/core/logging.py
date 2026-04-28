@@ -10,6 +10,18 @@ from structlog.typing import Processor
 ServiceType = Literal["api", "worker", "telegram", "service"]
 
 
+def _rotate_json_backup_name(default_name: str) -> str:
+    """Rename rotating backups from service.json.N to service.N.json."""
+    path = Path(default_name)
+    marker = ".json."
+
+    if marker not in path.name:
+        return default_name
+
+    base_name, index = path.name.rsplit(marker, 1)
+    return str(path.with_name(f"{base_name}.{index}.json"))
+
+
 def configure_logging(
     service: ServiceType = "api",
     json_logs: bool = True,
@@ -77,6 +89,7 @@ def configure_logging(
             backupCount=5,
             encoding="utf-8",
         )
+        file_handler.namer = _rotate_json_backup_name
         file_handler.setFormatter(json_formatter)
         root_logger.addHandler(file_handler)
 
