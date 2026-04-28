@@ -9,10 +9,10 @@ from src.core.settings import settings
 engine = create_async_engine(
     url=settings.db.DATABASE_URL,
     echo=settings.debug_mode,
-    pool_size=20,
-    max_overflow=10,
-    pool_timeout=30.0,
-    pool_recycle=1800,
+    pool_size=settings.db.POOL_SIZE,
+    max_overflow=settings.db.MAX_OVERFLOW,
+    pool_timeout=settings.db.POOL_TIMEOUT,
+    pool_recycle=settings.db.POOL_RECYCLE,
     pool_pre_ping=True,
 )
 

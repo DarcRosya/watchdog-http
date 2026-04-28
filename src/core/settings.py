@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import BaseModel, SecretStr, PostgresDsn
 from arq.connections import RedisSettings as ArqRedisSettings
+from pydantic import BaseModel, PostgresDsn, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
 
@@ -15,6 +15,10 @@ class DatabaseSettings(BaseModel):
     HOST: str = "localhost"
     PORT: int = 5432
     NAME: str = "watchdog-http"
+    POOL_SIZE: int = 26
+    MAX_OVERFLOW: int = 4
+    POOL_TIMEOUT: float = 30.0
+    POOL_RECYCLE: int = 1800
 
     @property
     def DATABASE_URL(self) -> str:
