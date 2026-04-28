@@ -144,7 +144,7 @@ services:
       - ./logs:/app/logs
     deploy:
       mode: replicated
-      replicas: 3
+      replicas: 5
       resources:
         limits:
           cpus: '0.5'
