@@ -17,7 +17,7 @@ The project ships three Compose files that cover every scenario.
 
 ## `docker-compose.yml` — Production Stack
 
-Defines nine services. All internal communication goes over the Docker network by service name. No host ports are exposed except Nginx on `:80`.
+Defines twelve services. All internal communication goes over the Docker network by service name. Host ports are exposed for Nginx, Grafana, Prometheus, and Pushgateway.
 
 ```
 Internet → Nginx :80
@@ -27,9 +27,14 @@ Internet → Nginx :80
 
 app            → database :5432  (TimescaleDB)
 app            → redis    :6379
-monitoring-worker → database, redis
-alerting-worker   → database, redis
+scheduler-worker  → database, redis
+monitoring-worker → database, redis, pushgateway
+alerting-worker   → database, redis, pushgateway
 telegram-bot      → database
+
+prometheus    → app :8000 (scrapes /metrics)
+prometheus    → pushgateway :9091
+grafana       → prometheus :9090
 ```
 
 ### Build Strategy
@@ -73,14 +78,24 @@ command: uvicorn src.main:app --host 0.0.0.0 --port 8000
 - Exposed internally on `:8000`; never directly reachable from the host in production.
 - Logs are written to `./logs/` via a bind mount.
 
-#### `monitoring-worker` — Check Scheduler
+#### `scheduler-worker` — Cron Scheduler
+
+```yaml
+container_name: watchdog_scheduler_worker
+command: arq src.worker.scheduler.SchedulerWorkerSettings
+```
+
+- Enqueues due monitors based on the Redis scheduler zset.
+- Publishes queue depth and scheduler backlog metrics.
+
+#### `monitoring-worker` — HTTP Check Runner
 
 ```yaml
 container_name: watchdog_monitoring_worker
 command: arq src.worker.monitoring.MonitoringWorkerSettings
 ```
 
-- Runs the ARQ worker that executes HTTP health checks and manages the Redis scheduler.
+- Runs the ARQ worker that executes HTTP health checks and writes results to the database.
 - Starts only after both `database` and `redis` are healthy.
 
 #### `alerting-worker` — Notification Dispatcher
@@ -111,11 +126,45 @@ ports:
 ```
 
 - The only service that exposes a host port.
+- Exposes `:80` on the host.
 - Routes traffic:
   - `/api/*` → FastAPI
   - `/docs`, `/redoc`, `/openapi.json` → FastAPI
   - `/` → Redirect to `/docs`
   - `/health` → 200 OK (no upstream hit)
+
+#### `prometheus` — Metrics Store
+
+```yaml
+container_name: watchdog_prometheus
+ports:
+  - "9090:9090"
+```
+
+- Scrapes FastAPI `/metrics` and the Pushgateway.
+- Stores time-series metrics for dashboards and alerting.
+
+#### `pushgateway` — Worker Metrics Ingestion
+
+```yaml
+container_name: watchdog_pushgateway
+ports:
+  - "9091:9091"
+```
+
+- Receives worker metrics that are pushed on job completion.
+- Prometheus scrapes this endpoint.
+
+#### `grafana` — Metrics Dashboard
+
+```yaml
+container_name: watchdog_grafana
+ports:
+  - "3000:3000"
+```
+
+- Visualizes Prometheus metrics with pre-provisioned dashboards.
+- Credentials are controlled by `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`.
 
 ---
 
@@ -132,6 +181,8 @@ What it adds on top of the base file:
 | `alerting-worker` | `--watch src` for auto-restart on code changes |
 | `telegram-bot` | Bind mount `./src:/app/src` for local bot code edits |
 | `app`, `monitoring-worker`, `alerting-worker` | Bind mount `./src:/app/src` so local edits are picked up immediately |
+
+`scheduler-worker` runs with the base image unless you add it to the override file.
 
 To enable:
 
@@ -200,7 +251,11 @@ All services have explicit CPU and memory limits (`deploy.resources.limits`). Th
 | database | 0.5 | 512 MB |
 | redis | 0.25 | 128 MB |
 | app | 0.5 | 256 MB |
+| scheduler-worker | 0.25 | 128 MB |
 | monitoring-worker | 0.5 | 384 MB |
 | alerting-worker | 0.25 | 128 MB |
 | telegram-bot | 0.25 | 128 MB |
 | nginx | 0.25 | 64 MB |
+| prometheus | 0.25 | 256 MB |
+| pushgateway | 0.25 | 128 MB |
+| grafana | 0.25 | 256 MB |

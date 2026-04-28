@@ -30,6 +30,19 @@ The app uses **TimescaleDB** (PostgreSQL-compatible), accessed via asyncpg.
 | `DB__PASS` | Yes | `strongpassword` | Database password. |
 | `DB__NAME` | Yes | `watchdog` | Database name. |
 
+#### Connection pool tuning (optional)
+
+These settings control SQLAlchemy's async connection pool. Keep
+`DB__POOL_SIZE + DB__MAX_OVERFLOW` below Postgres `max_connections`, and leave
+headroom for migrations, Grafana, and ad-hoc sessions.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DB__POOL_SIZE` | `26` | Base pool size per process. |
+| `DB__MAX_OVERFLOW` | `4` | Extra connections beyond the pool. |
+| `DB__POOL_TIMEOUT` | `30.0` | Seconds to wait for a free connection. |
+| `DB__POOL_RECYCLE` | `1800` | Recycle connections after this many seconds. |
+
 > **Docker Compose override**: `app`, `monitoring-worker`, and `alerting-worker` always override `DB__HOST=database` and `REDIS__R_HOST=redis` via their `environment:` block — you only need to set credentials in `.env`.
 
 ### Redis (`REDIS__*`)
@@ -53,6 +66,15 @@ Required for alert delivery. Without these, the alerting worker starts but all a
 | :--- | :--- | :--- |
 | `DEBUG_MODE` | `False` | Enables human-readable logs and FastAPI debug mode. Keep `False` in production. |
 | `ENABLE_FILE_LOGGING` | `False` | Writes structured JSON logs to `logs/` directory. |
+
+### Grafana (optional)
+
+Used only when running the monitoring stack in Docker Compose.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `GRAFANA_ADMIN_USER` | `admin` | Grafana admin username. |
+| `GRAFANA_ADMIN_PASSWORD` | `admin` | Grafana admin password. |
 
 ### Full example
 

@@ -95,6 +95,14 @@ This builds all images (first run) and starts:
 | ReDoc | http://localhost:80/redoc |
 | Raw FastAPI (direct) | http://localhost:8000 — only if override file adds port forwarding |
 
+Monitoring stack endpoints:
+
+| Service | URL | Notes |
+| :--- | :--- | :--- |
+| Grafana | http://localhost:3000 | Default login: `admin` / `admin` (override via `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`) |
+| Prometheus | http://localhost:9090 | Scrapes API and Pushgateway |
+| Pushgateway | http://localhost:9091 | Worker metrics ingestion |
+
 Wait a few seconds for the database health check to pass, then the API and workers will start automatically.
 
 Check that everything is up:
