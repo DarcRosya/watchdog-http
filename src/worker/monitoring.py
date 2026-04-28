@@ -15,9 +15,11 @@ from src.utils.ssl_checker import get_ssl_days_remaining
 from src.worker.lifecycle import (
     MonitoringWorkerContext,
     logger,
+    on_job_complete,
     shutdown,
     startup_monitoring,
 )
+from src.worker.metrics import CHECK_DURATION_SECONDS, HTTP_CHECKS_TOTAL
 
 # Queue name constants for cross-worker job routing
 ALERTING_QUEUE = "arq:alerting"
@@ -193,6 +195,20 @@ async def execute_http_check(
 
     end_time = datetime.now(timezone.utc)
     duration_ms = int((end_time - start_time).total_seconds() * 1000)
+
+    monitor_label = str(monitor_id)
+    CHECK_DURATION_SECONDS.labels(monitor_id=monitor_label).observe(
+        duration_ms / 1000.0
+    )
+
+    status_label = str(status_code) if status_code is not None else "error"
+    success_label = str(is_success).lower()
+
+    HTTP_CHECKS_TOTAL.labels(
+        monitor_id=monitor_label,
+        status_code=status_label,
+        is_success=success_label,
+    ).inc()
 
     return HttpCheckResult(
         start_time=start_time,
@@ -541,6 +557,8 @@ class MonitoringWorkerSettings:
     on_startup = startup_monitoring
     on_shutdown = shutdown
 
-    max_jobs = 50  # High concurrency for HTTP checks
+    after_job_end = on_job_complete
+
+    max_jobs = 12  # Balance throughput vs DB connections
     job_timeout = 60  # Allow slow endpoints to respond
     max_tries = 2  # Retry once on failure

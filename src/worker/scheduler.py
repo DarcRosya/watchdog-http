@@ -8,12 +8,40 @@ from src.models.monitor import Monitor
 from src.worker.lifecycle import (
     WorkerContext,
     logger,
+    on_job_complete,
     shutdown,
     startup_scheduler,
 )
+from src.worker.metrics import QUEUE_DEPTH, SCHEDULER_BACKLOG
 
 # Queue name constants for cross-worker job routing
 MONITORING_QUEUE = "arq:monitoring"
+ALERTING_QUEUE = "arq:alerting"
+
+
+async def _get_queue_depth(redis: Any, queue_name: str) -> int:
+    """Read queue depth for ARQ keys regardless of Redis structure."""
+    queue_type_raw = await redis.type(queue_name)
+    queue_type = (
+        queue_type_raw.decode()
+        if isinstance(queue_type_raw, (bytes, bytearray))
+        else str(queue_type_raw)
+    )
+
+    if queue_type == "zset":
+        return int(await redis.zcard(queue_name))
+    if queue_type == "list":
+        return int(await redis.llen(queue_name))
+    if queue_type == "none":
+        return 0
+
+    logger.warning(
+        "queue_depth_unknown_type",
+        queue_name=queue_name,
+        queue_type=queue_type,
+    )
+    return 0
+
 
 # =============================================================================
 # CRON JOB: Scheduler
@@ -32,6 +60,13 @@ async def scheduler(ctx: dict[str, Any]) -> None:
 
     # Check total backlog BEFORE limiting to 100 (backlog monitoring)
     total_due = await redis.zcount("scheduler", "-inf", now_ts)
+    SCHEDULER_BACKLOG.set(total_due)
+
+    monitoring_q_len = await _get_queue_depth(redis, MONITORING_QUEUE)
+    alerting_q_len = await _get_queue_depth(redis, ALERTING_QUEUE)
+
+    QUEUE_DEPTH.labels(queue_name=MONITORING_QUEUE).set(monitoring_q_len)
+    QUEUE_DEPTH.labels(queue_name=ALERTING_QUEUE).set(alerting_q_len)
 
     if total_due > 100:
         logger.warning(
@@ -136,6 +171,8 @@ class SchedulerWorkerSettings:
 
     on_startup = startup_scheduler
     on_shutdown = shutdown
+
+    after_job_end = on_job_complete
 
     max_jobs = 10
     job_timeout = 30

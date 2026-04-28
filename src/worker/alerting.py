@@ -9,9 +9,11 @@ from src.telegram.notifier import (
 from src.worker.lifecycle import (
     AlertingWorkerContext,
     logger,
+    on_job_complete,
     shutdown,
     startup_alerting,
 )
+from src.worker.metrics import WORKER_JOBS_TOTAL
 
 # =============================================================================
 # TASK: Send Telegram message
@@ -33,11 +35,19 @@ async def send_telegram_message(
             "telegram_message_sent",
             **alert_metadata,
         )
+        WORKER_JOBS_TOTAL.labels(
+            worker_type="send_telegram_message",
+            status="success",
+        ).inc()
     else:
         logger.error(
             "telegram_message_failed",
             **alert_metadata,
         )
+        WORKER_JOBS_TOTAL.labels(
+            worker_type="send_telegram_message",
+            status="error",
+        ).inc()
 
     return {
         "status": "sent" if success else "failed",
@@ -310,6 +320,8 @@ class AlertingWorkerSettings:
 
     on_startup = startup_alerting
     on_shutdown = shutdown
+
+    after_job_end = on_job_complete
 
     max_jobs = 15  # Moderate concurrency for Telegram API
     job_timeout = 30  # Telegram API timeout

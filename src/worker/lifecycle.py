@@ -15,6 +15,11 @@ from src.models.resultlog import ResultLog
 from src.models.user import User
 from src.telegram.notifier import TelegramNotifier
 from src.utils.time import get_next_aligned_time
+from src.worker.metrics import (
+    WORKER_JOBS_TOTAL,
+    delete_metrics_from_gateway,
+    push_metrics_async,
+)
 
 
 class WorkerContext(TypedDict):
@@ -22,6 +27,7 @@ class WorkerContext(TypedDict):
 
     redis: ArqRedis
     session_factory: async_sessionmaker[AsyncSession]
+    worker_type: str
 
 
 class MonitoringWorkerContext(WorkerContext):
@@ -167,6 +173,7 @@ async def startup_scheduler(ctx: WorkerContext) -> None:
     )
 
     ctx["session_factory"] = async_session_factory
+    ctx["worker_type"] = "scheduler"
 
     await hydrate_cache(ctx)
 
@@ -190,6 +197,7 @@ async def startup_monitoring(ctx: MonitoringWorkerContext) -> None:
     )
 
     ctx["session_factory"] = async_session_factory
+    ctx["worker_type"] = "monitoring"
 
     logger.info("monitoring_worker_ready")
 
@@ -213,12 +221,28 @@ async def startup_alerting(ctx: AlertingWorkerContext) -> None:
 
     ctx["session_factory"] = async_session_factory
     ctx["notifier"] = TelegramNotifier(http_client=ctx["http_client"])
+    ctx["worker_type"] = "alerting"
 
     logger.info("alerting_worker_ready")
 
 
+async def on_job_complete(
+    ctx: WorkerContext,
+) -> None:
+    """ARQ 0.26+ callback that runs after each job has finished."""
+    worker_type = str(ctx.get("worker_type", "unknown"))
+
+    WORKER_JOBS_TOTAL.labels(worker_type=worker_type, status="success").inc()
+
+    logger.debug("job_completed", worker_type=worker_type)
+
+    await push_metrics_async(job_name="arq_worker")
+
+
 async def shutdown(ctx: WorkerContext) -> None:
     logger.info("shutdown_started")
+
+    await delete_metrics_from_gateway(job_name="arq_worker")
 
     http_client = ctx.get("http_client")
     if http_client:
