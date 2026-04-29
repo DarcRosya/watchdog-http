@@ -8,7 +8,7 @@ The project ships three Compose files that cover every scenario.
 
 | File | Purpose | When to use |
 | :--- | :--- | :--- |
-| `docker-compose.yml` | Production stack — all services, no port exposure | Deployment / full local run |
+| `docker-compose.yml` | Production stack — all services, exposes Nginx + monitoring ports | Deployment / full local run |
 | `docker-compose.override.yml` | Dev additions — hot reload, source mounts | Applied automatically when present |
 | `docker-compose.override.example.yml` | Template for the override file | Copy and enable once |
 | `docker-compose.test.yml` | Isolated test infrastructure | `make test-infra-up` before running tests |
@@ -91,11 +91,14 @@ command: arq src.worker.scheduler.SchedulerWorkerSettings
 #### `monitoring-worker` — HTTP Check Runner
 
 ```yaml
-container_name: watchdog_monitoring_worker
 command: arq src.worker.monitoring.MonitoringWorkerSettings
+deploy:
+  mode: replicated
+  replicas: 5
 ```
 
 - Runs the ARQ worker that executes HTTP health checks and writes results to the database.
+- Scaled to 5 replicas by default. Each replica pushes metrics with an `instance` label.
 - Starts only after both `database` and `redis` are healthy.
 
 #### `alerting-worker` — Notification Dispatcher

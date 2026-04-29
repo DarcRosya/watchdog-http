@@ -7,9 +7,8 @@ The test suite is split into **unit** and **integration** tests. Unit tests run 
 ## Directory Layout
 
 ```
-src/tests/
+tests/
 ├── conftest.py                         # shared fixtures (DB, Redis, HTTP client, factories)
-│
 ├── unit/                               # no I/O, fully mocked
 │   ├── test_schemas_monitor.py         # Pydantic schema validation
 │   ├── test_schemas_user.py
@@ -18,7 +17,6 @@ src/tests/
 │   ├── test_utils.py                   # utility functions
 │   ├── test_worker_alerting.py         # alerting worker tasks
 │   └── test_worker_monitoring.py       # monitoring worker + scheduler
-│
 └── integration/                        # require live DB + Redis
     ├── test_api_monitors.py            # HTTP endpoints — monitors
     ├── test_api_users.py               # HTTP endpoints — users
@@ -80,10 +78,11 @@ cp .env.test.example .env.test
 
 Unit tests mock all I/O and can run immediately after installing dependencies.
 
-```bash
-make test               # runs full suite (unit + integration)
+`make test` runs the full suite (unit + integration) and expects the test containers to be running.
 
-# or target just units
+```bash
+poetry run pytest tests -m unit
+# or
 poetry run pytest tests/unit -v
 ```
 
@@ -159,7 +158,7 @@ The session-scoped `db_engine` fixture creates all tables once at the start of t
 
 ## Fixtures
 
-All shared fixtures live in `src/tests/conftest.py`.
+All shared fixtures live in `tests/conftest.py`.
 
 ### Database
 

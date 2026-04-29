@@ -5,6 +5,8 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.128%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![ARQ](https://img.shields.io/badge/ARQ-Workers-DC382D?style=for-the-badge&logo=redis&logoColor=white)
 ![TimescaleDB](https://img.shields.io/badge/TimescaleDB-PG14-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-2.x-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-11.x-F46800?style=for-the-badge&logo=grafana&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 
 **Watchdog** is an autonomous, asynchronous web-monitoring system. Background workers continuously run HTTP health checks on your APIs and websites, persist time-series metrics in TimescaleDB, and deliver real-time incident alerts to Telegram — without any manual intervention.
@@ -21,7 +23,7 @@
 - **Single entrypoint via Nginx** — API traffic is routed through `/api/*`, and `/` redirects to `/docs`.
 - **Structured JSON logging** — every worker and API event is machine-readable; pipe through `jq` out of the box.
 - **Prometheus + Grafana observability** — provisioned dashboards for workers, queues, and API latency. See [docs/monitoring/OBSERVABILITY.md](docs/monitoring/OBSERVABILITY.md).
-- **Full test suite** — 204 tests (unit + integration), `mypy`-clean, `black`-formatted.
+- **Full test suite** — 200+ tests (unit + integration), `mypy`-clean, `black`-formatted.
 
 ---
 
@@ -73,6 +75,7 @@
 | Reverse proxy | **Nginx** | Traffic routing, single entry point |
 | Validation | **Pydantic V2** | Data modeling and settings |
 | Logging | **structlog** | Structured JSON logs |
+| Observability | **Prometheus + Grafana** | Metrics collection and dashboards |
 | Infrastructure | **Docker Compose** | Container orchestration |
 
 ## Platform Support
@@ -98,10 +101,12 @@ watchdog-http/
 │   └── utils/                  # Shared helpers (time, SSL checker, generators)
 ├── tests/                      # Unit + integration tests
 ├── nginx/                      # Nginx config + Dockerfile
+├── monitoring/                 # Prometheus + Grafana config
 ├── docs/                       # Project documentation
 ├── scripts/                    # Utility scripts (version sync)
 ├── docker-compose.yml          # Production stack
-├── docker-compose.override.yml # Dev additions (hot reload)
+├── docker-compose.override.example.yml # Dev override template (hot reload)
+├── docker-compose.override.yml # Local dev override (optional)
 ├── docker-compose.test.yml     # Isolated test infrastructure
 ├── .env.example                # Template for production env
 ├── .env.test.example           # Template for test env
@@ -163,6 +168,9 @@ curl -X POST http://localhost/api/monitors/add-urls \
 | ReDoc | http://localhost/redoc |
 | API | http://localhost/api/ |
 | Health check | http://localhost/health |
+| Grafana | http://localhost:3000 |
+| Prometheus | http://localhost:9090 |
+| Pushgateway | http://localhost:9091 |
 
 ---
 

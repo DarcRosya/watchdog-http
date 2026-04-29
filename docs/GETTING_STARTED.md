@@ -93,7 +93,7 @@ This builds all images (first run) and starts:
 | FastAPI (via Nginx) | http://localhost:80/api/ |
 | Swagger UI | http://localhost:80/docs |
 | ReDoc | http://localhost:80/redoc |
-| Raw FastAPI (direct) | http://localhost:8000 — only if override file adds port forwarding |
+| Raw FastAPI (direct) | http://localhost:8000 — only if you add port forwarding in `docker-compose.override.yml` |
 
 Monitoring stack endpoints:
 
@@ -117,7 +117,7 @@ make docker-logs
 
 ## 4. Apply database migrations
 
-The database schema is managed by Alembic. On a fresh install, run:
+The database schema is managed by Alembic. When running with Docker Compose, the `migrator` service applies migrations on startup. If you run the app outside of Docker, apply migrations manually:
 
 ```bash
 make upgrade

@@ -13,6 +13,8 @@ worker health, queue depth, checks, and API latency.
 | Prometheus | http://localhost:9090 | Scrapes API `/metrics` and Pushgateway |
 | Pushgateway | http://localhost:9091 | Worker metrics ingestion |
 
+FastAPI metrics are exposed internally at `app:8000/metrics`. To access `/metrics` from the host, add a port mapping for `app` in `docker-compose.override.yml` (for example, `ports: ["8000:8000"]`).
+
 ---
 
 ## Provisioning
@@ -36,9 +38,9 @@ fixed `time` block to avoid locking the dashboard to an absolute range.
 - `worker_jobs_total{worker_type,status}`: completed jobs by worker and status.
 - `scheduler_backlog`: number of due monitors waiting to be scheduled.
 - `arq_queue_depth{queue_name}`: queue depth for monitoring and alerting.
-- `push_time_seconds{job="arq_worker"}`: last Pushgateway update time.
+- `push_time_seconds{job="arq_worker",instance=...}`: last Pushgateway update time per worker instance.
 - `http_requests_total{job="watchdog_api"}`: FastAPI request throughput.
-- `http_request_duration_highr_seconds_bucket` or `http_request_duration_seconds_bucket`: API latency histograms.
+- `http_request_duration_seconds_bucket` (or `http_request_duration_highr_seconds_bucket` depending on instrumentator version): API latency histograms.
 
 ---
 
