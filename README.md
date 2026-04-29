@@ -35,15 +35,29 @@
 
 ![System Context](docs/architecture/C1-Context.svg)
 
-### C2 — Container Diagram
+### C2 — Container Diagrams
+
+#### C2 Core — Monitoring Pipeline
 
 <details>
 <summary>Click to expand</summary>
 <br>
 
-*Internal services, data flow, and technologies.*
+*Focuses on how monitoring data moves through the system and how core business logic is executed. External actors and storage are intentionally de-emphasized.*
 
-![Container Diagram](docs/architecture/C2-Container.svg)
+![C2 Core](docs/architecture/C2-Container-Core.svg)
+
+</details>
+
+#### C2 Observability — Metrics Pipeline
+
+<details>
+<summary>Click to expand</summary>
+<br>
+
+*Shows the telemetry flow only: who pushes metrics, who scrapes them, and where they are visualized.*
+
+![C2 Observability](docs/architecture/C2-Container-Observability.svg)
 
 </details>
 
